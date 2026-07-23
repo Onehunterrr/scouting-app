@@ -223,12 +223,35 @@ def generate_players(n, used_names, date_str, rng=None):
         federation = FEDERATION[country]
 
         name = None
+        # 1) try a simple "First Last" from the country pool
         for _try in range(40):
             cand = f"{r.choice(firsts)} {r.choice(lasts)}"
             if cand not in used_names:
                 name = cand
                 used_names.add(name)
                 break
+        # 2) if the country's pool is saturated, use a realistic hyphenated
+        #    (double-barrelled) surname -- culturally plausible and multiplies
+        #    the available name space by len(lasts) without inventing junk names.
+        if name is None:
+            for _try in range(60):
+                l1, l2 = r.choice(lasts), r.choice(lasts)
+                if l1 == l2:
+                    continue
+                cand = f"{r.choice(firsts)} {l1}-{l2}"
+                if cand not in used_names:
+                    name = cand
+                    used_names.add(name)
+                    break
+        # 3) last-resort (should effectively never trigger): a middle initial
+        if name is None:
+            for _try in range(60):
+                mi = r.choice("ABCDEFGHIJKLMNOPRSTVZ")
+                cand = f"{r.choice(firsts)} {mi}. {r.choice(lasts)}"
+                if cand not in used_names:
+                    name = cand
+                    used_names.add(name)
+                    break
         if name is None:
             cand = f"{r.choice(firsts)} {r.choice(lasts)} {r.randint(2,99)}"
             used_names.add(cand)

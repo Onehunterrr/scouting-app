@@ -1,6 +1,6 @@
 # Global Lower-Tier Scouting Prototype
 
-A football scouting tool focused on undervalued, unrepresented players in lower-tier leagues worldwide. 1,000-player sample database (fictional data, structured like real scraped data), transparent percentile-based scoring with a dedicated goalkeeper model, and a full client-server architecture.
+A football scouting tool focused on undervalued, unrepresented players in lower-tier leagues worldwide. 5,000-player sample database (fictional data, structured like real scraped data), transparent percentile-based scoring with a dedicated goalkeeper model, and a full client-server architecture.
 
 **Live app:** open `index.html` (GitHub Pages) — works fully standalone in offline mode.
 
