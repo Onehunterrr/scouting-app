@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: scout
+      POSTGRES_PASSWORD: scoutpass
+      POSTGRES_DB: scouting
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scout -d scouting"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://scout:scoutpass@db:5432/scouting
+      JWT_SECRET: change-me-to-a-long-random-string
+    ports:
+      - "8000:8000"
+    # First boot: copy the shipped SQLite data into Postgres, then serve.
+    # The migration is idempotent (drops + recreates tables), so restarts are safe;
+    # comment the migrate step out once you have real user accounts you want to keep.
+    command: >
+      sh -c "python3 migrate_to_postgres.py $$DATABASE_URL sqlite:///./scouting.db
+             && uvicorn api_server:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  pgdata:

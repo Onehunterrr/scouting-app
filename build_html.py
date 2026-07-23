@@ -1,0 +1,2230 @@
+import json
+
+import sys
+import player_gen
+from transfer_pathways import PATHWAYS, DEST_CITY_POOLS, COUNTRY_TLD, COUNTRY_FEDERATION
+
+DATA_FILE = sys.argv[1] if len(sys.argv) > 1 else "players_current.json"
+players = json.load(open(DATA_FILE))
+ORDER = ["name","country","league","tier","club","position","age","minutes","goals","assists",
+         "progPasses","progCarries","tklInt","saves","goalsConceded","passCompletionPct",
+         "sweeperActions","cleanSheets","marketValue","hasAgent","contractExpires",
+         "clubContactEmail","contactRoute","federationRegistry","dateAdded","lastUpdated"]
+
+rows_js = []
+for p in players:
+    vals = [p[f] for f in ORDER]
+    rows_js.append(json.dumps(vals))
+raw_players_js = ",\n".join(rows_js)
+
+fields_js = json.dumps(ORDER)
+
+# Data for the "Realistic Transfer Targets" modal section: source-country city
+# pools (for domestic step-up/lateral candidates), the pathway map to two
+# realistic destination countries, that destination's city pool, and the
+# shared club-suffix list -- all reused straight from player_gen.py /
+# transfer_pathways.py so the app never drifts from the generator's data.
+source_cities_js = json.dumps({c: pool[2] for c, pool in player_gen.NAME_POOLS.items()})
+pathways_js = json.dumps(PATHWAYS)
+dest_cities_js = json.dumps(DEST_CITY_POOLS)
+club_suffix_js = json.dumps(player_gen.CLUB_SUFFIX)
+country_tld_js = json.dumps(COUNTRY_TLD)
+country_federation_js = json.dumps(COUNTRY_FEDERATION)
+
+html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Lower-Tier Scouting Prototype</title>
+<style>
+  :root {
+    --bg: #1f1b17;
+    --bg-grad-a: #171310;
+    --bg-grad-b: #262019;
+    --card: #262019;
+    --card-alt: #2e2620;
+    --border: #3d3527;
+    --text: #f0e6d8;
+    --muted: #a89a86;
+    --navy: #c1653f;
+    --navy-light: #cf7d5a;
+    --accent: #6fa87a;
+    --accent-light: rgba(76,175,125,0.16);
+    --danger: #b8543f;
+    --danger-bg: rgba(239,106,99,0.16);
+    --amber: #b08a45;
+    --amber-bg: rgba(224,168,79,0.16);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: linear-gradient(135deg, var(--bg-grad-a), var(--bg-grad-b));
+    color: #fff;
+    padding: 22px 28px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; font-size: 13px; color: #c4b7a3; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 18px;
+    padding: 18px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .field select, .field input[type=text], .field input[type=number] {
+    width: 100%;
+    padding: 7px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--card-alt);
+    color: var(--text);
+  }
+  .field select option { background: var(--card-alt); color: var(--text); }
+  .agent-checks label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; margin-bottom: 6px; cursor: pointer;
+    color: var(--text);
+  }
+
+  .weight-row { margin-bottom: 12px; }
+  .weight-row .weight-label {
+    display: flex; justify-content: space-between;
+    font-size: 12px; margin-bottom: 3px;
+  }
+  .weight-row .weight-label span.val { color: var(--accent); font-weight: 700; }
+  input[type=range] { width: 100%; accent-color: var(--navy-light); }
+  .weight-total {
+    font-size: 12px; margin-top: 8px; padding: 6px 8px; border-radius: 6px;
+    background: var(--card-alt); text-align: center; font-weight: 600; color: var(--text);
+  }
+  .weight-total.off { background: var(--danger-bg); color: var(--danger); }
+  .weight-total.ok { background: var(--accent-light); color: var(--accent); }
+
+  button.reset-btn {
+    width: 100%; margin-top: 6px; padding: 8px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--card-alt); color: var(--text); cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  button.reset-btn:hover { background: #332b20; }
+
+  .summary-bar {
+    display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .stat-chip {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 14px; font-size: 12px; color: var(--muted);
+  }
+  .stat-chip b { display: block; font-size: 18px; color: var(--navy-light); font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    position: sticky; top: 0; background: var(--bg-grad-b); color: #fff;
+    text-align: left; padding: 9px 8px; cursor: pointer; user-select: none;
+    white-space: nowrap; border-bottom: 1px solid var(--border);
+  }
+  thead th:hover { background: #332b20; }
+  thead th.sorted::after { content: " " attr(data-dir); font-size: 10px; }
+  tbody tr { cursor: pointer; border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--card-alt); }
+  tbody td { padding: 8px 8px; white-space: nowrap; color: var(--text); }
+  tbody td.name { font-weight: 600; }
+
+  .badge {
+    display: inline-block; padding: 3px 8px; border-radius: 20px;
+    font-size: 10.5px; font-weight: 700; white-space: nowrap;
+  }
+  .badge.hp-unrep { background: #2f6b48; color: #fff; }
+  .badge.hp { background: var(--accent-light); color: var(--accent); }
+  .badge.wl-unrep { background: #725322; color: #f2dcb0; }
+  .badge.wl { background: var(--amber-bg); color: var(--amber); }
+  .badge.none { background: transparent; color: var(--muted); }
+
+  .uv-score { font-weight: 700; }
+  .uv-pos { color: var(--accent); }
+  .uv-neg { color: var(--danger); }
+
+  .agent-tag { font-size: 11px; padding: 2px 7px; border-radius: 5px; font-weight: 600; }
+  .agent-tag.no { background: var(--accent-light); color: var(--accent); }
+  .agent-tag.yes { background: #332b20; color: #c4b7a3; }
+  .agent-tag.unknown { background: rgba(224,168,79,0.14); color: var(--amber); }
+
+  .table-wrap { max-height: 640px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(10,7,5,.75);
+    align-items: center; justify-content: center; z-index: 50; padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; max-width: 640px; width: 100%;
+    max-height: 88vh; overflow-y: auto; padding: 24px; color: var(--text);
+  }
+  .modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .modal-head h3 { margin: 0; font-size: 20px; color: var(--text); }
+  .modal-head .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); line-height: 1; }
+
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 18px; }
+  .pill { background: var(--card-alt); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 600; color: var(--navy-light); }
+
+  .bar-block { margin-bottom: 14px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; font-weight: 600; color: var(--text); }
+  .bar-track { background: #332b20; border-radius: 6px; height: 10px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; background: var(--navy-light); }
+
+  .uv-explain {
+    margin-top: 18px; padding: 14px; border-radius: 8px; background: var(--card-alt); font-size: 12.5px; line-height: 1.5; color: var(--text);
+  }
+  .uv-explain b { color: var(--navy-light); }
+
+  .contact-card {
+    margin-top: 14px; padding: 14px; border-radius: 8px; border: 1px solid var(--border); font-size: 12.5px;
+  }
+  .contact-card h4 {
+    margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  }
+  .contact-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .contact-row .label { color: var(--muted); font-weight: 600; }
+  .contact-row a { color: var(--navy-light); font-weight: 600; text-decoration: none; }
+  .contact-row a:hover { text-decoration: underline; }
+  .minor-warning {
+    margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: var(--danger-bg); color: var(--danger);
+    font-weight: 700; font-size: 12px;
+  }
+  .verify-note {
+    margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.5;
+  }
+
+  .system-card {
+    margin-top: 14px; padding: 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card-alt); font-size: 12.5px;
+  }
+  .system-card h4 {
+    margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  }
+  .system-badge {
+    display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: 700;
+    background: var(--accent-light); color: var(--accent); margin-bottom: 8px;
+  }
+  .system-note { line-height: 1.55; color: var(--text); }
+
+  /* System fit breakdown */
+  .fit-breakdown { margin-top: 12px; }
+  .fit-breakdown h5 {
+    margin: 0 0 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700;
+  }
+  .fit-driver {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11.5px;
+  }
+  .fit-driver .fd-label { width: 150px; flex-shrink: 0; color: var(--muted); }
+  .fit-driver .fd-track {
+    flex: 1; height: 7px; background: var(--card); border-radius: 4px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .fit-driver .fd-fill { height: 100%; background: var(--navy-light); }
+  .fit-driver.key .fd-fill { background: var(--accent); }
+  .fit-driver .fd-val { width: 42px; text-align: right; font-weight: 700; color: var(--text); flex-shrink: 0; }
+  .fit-driver.key .fd-label { color: var(--accent); font-weight: 700; }
+
+  /* Market value chart */
+  .market-card {
+    margin-top: 14px; padding: 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card-alt); font-size: 12.5px;
+  }
+  .market-card h4 {
+    margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  }
+  .market-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .market-current { font-size: 20px; font-weight: 800; color: var(--text); }
+  .market-current .mv-est-tag {
+    font-size: 10px; font-weight: 700; color: var(--amber); background: var(--amber-bg);
+    padding: 2px 7px; border-radius: 5px; margin-left: 8px; vertical-align: middle; letter-spacing: .02em;
+  }
+  .market-delta { font-size: 12px; font-weight: 700; }
+  .market-delta.up { color: var(--accent); }
+  .market-delta.down { color: var(--danger); }
+  .market-chart { width: 100%; height: 120px; display: block; }
+  .market-live {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); margin-top: 6px;
+  }
+  .market-live .live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block;
+    animation: livepulse 1.8s ease-in-out infinite;
+  }
+  @keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+  .market-note { font-size: 10.5px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+
+  /* Detailed stat grid */
+  .stats-card {
+    margin-top: 14px; padding: 14px; border-radius: 8px; border: 1px solid var(--border); font-size: 12.5px;
+  }
+  .stats-card h4 {
+    margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  @media (max-width: 560px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-cell {
+    background: var(--card-alt); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px;
+  }
+  .stat-cell .sc-val { font-size: 16px; font-weight: 800; color: var(--text); }
+  .stat-cell .sc-label { font-size: 10.5px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+
+  .new-badge {
+    display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 4px; font-size: 9.5px;
+    font-weight: 800; letter-spacing: .03em; background: var(--accent); color: #1f1b17; vertical-align: middle;
+  }
+
+  .transfer-card {
+    margin-top: 14px; padding: 14px; border-radius: 8px; border: 1px solid var(--border); font-size: 12.5px;
+  }
+  .transfer-card h4 {
+    margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  }
+  .transfer-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border);
+  }
+  .transfer-item:last-child { border-bottom: none; }
+  .transfer-rank {
+    width: 20px; text-align: center; font-weight: 800; color: var(--navy-light); font-size: 13px; flex-shrink: 0;
+  }
+  .transfer-main { flex: 1; min-width: 0; }
+  .transfer-club { font-weight: 700; color: var(--text); }
+  .transfer-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .transfer-contact { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .transfer-contact a { color: var(--navy-light); text-decoration: none; }
+  .transfer-contact a:hover { text-decoration: underline; }
+  .transfer-federation { color: var(--muted); }
+  .move-type-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700;
+    margin-left: 6px; vertical-align: middle;
+  }
+  .move-type-badge.step-up { background: var(--accent-light); color: var(--accent); }
+  .move-type-badge.lateral-domestic { background: var(--card-alt); color: var(--navy-light); }
+  .move-type-badge.lateral-europe { background: var(--amber-bg); color: var(--amber); }
+  .transfer-fit { width: 74px; text-align: right; flex-shrink: 0; }
+  .transfer-fit b { font-size: 13px; color: var(--text); }
+  .transfer-fit-track { background: #332b20; border-radius: 5px; height: 6px; overflow: hidden; margin-top: 3px; }
+  .transfer-fit-fill { height: 100%; border-radius: 5px; background: var(--navy-light); }
+  .transfer-note { margin-top: 10px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+  footer.note {
+    padding: 14px 28px 28px; font-size: 11.5px; color: var(--muted); max-width: 900px;
+  }
+
+  /* Shortlist star */
+  .star-btn {
+    background: none; border: none; cursor: pointer; font-size: 15px; padding: 0 6px 0 0;
+    color: var(--border); vertical-align: middle; line-height: 1;
+  }
+  .star-btn.saved { color: var(--amber); }
+  .star-btn:hover { color: var(--navy-light); }
+  .modal-star-btn {
+    background: var(--card-alt); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+    padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--text); margin-left: 10px;
+  }
+  .modal-star-btn.saved { background: var(--amber-bg); color: var(--amber); border-color: var(--amber); }
+
+  /* Compare */
+  .compare-cb { margin-right: 6px; vertical-align: middle; }
+  .compare-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-grad-b); border-top: 1px solid var(--border);
+    padding: 10px 20px; display: none; align-items: center; gap: 12px; z-index: 40; color: #fff; font-size: 13px;
+  }
+  .compare-bar.open { display: flex; }
+  .compare-bar button {
+    background: var(--navy); color: #fff; border: none; border-radius: 6px; padding: 7px 14px;
+    font-weight: 700; font-size: 12.5px; cursor: pointer;
+  }
+  .compare-bar button.clear { background: transparent; border: 1px solid var(--border); }
+  .compare-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+  .compare-table th, .compare-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+  .compare-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+  /* Notes */
+  .notes-card {
+    margin-top: 14px; padding: 14px; border-radius: 8px; border: 1px solid var(--border); font-size: 12.5px;
+  }
+  .notes-card h4 {
+    margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  }
+  .notes-card textarea {
+    width: 100%; min-height: 64px; background: var(--card-alt); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 8px; font-size: 12.5px; font-family: inherit; resize: vertical;
+  }
+  .notes-saved-hint { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+
+  /* Toolbar: CSV export + pagination */
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tb-btn {
+    background: var(--card-alt); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .tb-btn:hover { background: #332b20; }
+  .tb-btn:disabled { opacity: .4; cursor: default; }
+  .pager { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12px; }
+  .pager select {
+    background: var(--card-alt); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 12px;
+  }
+  #page-info { color: var(--muted); font-weight: 600; min-width: 90px; text-align: center; }
+  .api-status { flex-basis: 100%; font-size: 10.5px; color: var(--muted); }
+
+  /* Auth (client-server mode only) */
+  .auth-btn-row { display: flex; gap: 8px; }
+  .auth-btn-row button {
+    flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card-alt); color: var(--text); cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .auth-btn-row button.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .auth-status { font-size: 11px; margin-top: 8px; color: var(--muted); min-height: 14px; line-height: 1.4; }
+  .auth-status.err { color: var(--danger); }
+  .auth-status.ok { color: var(--accent); }
+  #auth-logged { font-size: 12.5px; line-height: 1.5; }
+  #auth-logged b { color: var(--navy-light); }
+
+  /* Compare radar chart */
+  .radar-wrap { margin: 10px 0 16px; text-align: center; }
+  .radar-wrap svg { max-width: 420px; width: 100%; height: auto; }
+  .radar-legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 6px; font-size: 12px; }
+  .radar-legend .rl-swatch {
+    display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle;
+  }
+
+  /* Model transparency panel */
+  .uv-transparency { margin-top: 10px; }
+  .uv-transparency summary { cursor: pointer; font-weight: 700; color: var(--navy-light); font-size: 12px; }
+  .transparency-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 8px 0; }
+  .transparency-table th, .transparency-table td { border-bottom: 1px solid var(--border); padding: 5px 6px; text-align: right; }
+  .transparency-table th:first-child, .transparency-table td:first-child { text-align: left; }
+  .transparency-table th { color: var(--muted); font-weight: 600; }
+  .uv-formula {
+    margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: var(--card);
+    border: 1px solid var(--border); font-weight: 700; font-size: 12px; color: var(--text);
+  }
+  .transparency-line { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+
+  /* Keyboard focus */
+  tbody tr.kb-focused { background: var(--card-alt); outline: 2px solid var(--navy-light); outline-offset: -2px; }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, tr:focus-visible {
+    outline: 2px solid var(--navy-light); outline-offset: 2px;
+  }
+  .kb-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Positioning blurb */
+  .positioning-note {
+    font-size: 11.5px; color: var(--muted); margin-top: 6px; max-width: 640px; line-height: 1.5;
+  }
+
+  /* Mobile responsiveness */
+  @media (max-width: 640px) {
+    header { padding: 16px 16px; }
+    header h1 { font-size: 18px; }
+    .layout { padding: 10px; gap: 12px; }
+    .summary-bar { gap: 6px; }
+    .stat-chip { padding: 6px 10px; font-size: 11px; }
+    table { font-size: 11px; }
+    thead th, tbody td { padding: 6px 5px; }
+    .modal { padding: 16px; max-height: 94vh; }
+    .modal-head h3 { font-size: 17px; }
+    .compare-bar { flex-wrap: wrap; padding: 8px 12px; }
+    footer.note { padding: 10px 16px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Global Lower-Tier Scouting Prototype</h1>
+  <p>Sample data (__PLAYER_COUNT__ players, __COUNTRY_COUNT__ countries, ages 17-26) &middot; refreshed weekly (10 new players added, all stats re-checked) &middot; demonstrates the percentile-based Undervalued Score methodology from the Research &amp; Build Plan</p>
+  <p class="positioning-note">How this differs from Wyscout / InStat / Scout7: those platforms are event-data + video libraries priced for professional clubs, with generic scoring across all leagues. This prototype targets the gap they leave open at the lower-tier/unrepresented-player end: transparent, user-adjustable scoring weights (not a black-box grade), goalkeeper-specific value metrics instead of reusing outfield stats on keepers, and an explicit focus on flagging undervalued, unrepresented players rather than just describing performance.</p>
+  <p class="kb-hint">Keyboard: &uarr;/&darr; move between players &middot; Enter opens the focused player &middot; / jumps to search &middot; Esc closes any open panel</p>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Filters</h2>
+      <div class="field">
+        <label for="f-search">Search player</label>
+        <input type="text" id="f-search" placeholder="Name, club, or country...">
+      </div>
+      <div class="field">
+        <label for="f-position">Position</label>
+        <select id="f-position">
+          <option value="">All positions</option>
+          <option value="GK">GK</option>
+          <option value="DF">DF</option>
+          <option value="MF">MF</option>
+          <option value="FW">FW</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-country">Country</label>
+        <select id="f-country"><option value="">All countries</option></select>
+      </div>
+      <div class="field">
+        <label for="f-tier">League tier</label>
+        <select id="f-tier">
+          <option value="">All tiers</option>
+          <option value="2">Tier 2</option>
+          <option value="3">Tier 3</option>
+          <option value="4">Tier 4</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-age">Max age: <span id="f-age-val">26</span></label>
+        <input type="range" id="f-age" min="17" max="26" value="26">
+      </div>
+      <div class="field">
+        <label>Representation</label>
+        <div class="agent-checks">
+          <label><input type="checkbox" class="agent-cb" value="No" checked> No agent</label>
+          <label><input type="checkbox" class="agent-cb" value="Unknown" checked> Unknown</label>
+          <label><input type="checkbox" class="agent-cb" value="Yes" checked> Has agent</label>
+        </div>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="f-shortlist-only" style="width:auto;"> Show shortlist only &#9733;</label>
+      </div>
+      <button class="reset-btn" id="reset-filters">Reset filters</button>
+    </div>
+
+    <div class="card">
+      <h2>Scoring weights</h2>
+      <div class="weight-row">
+        <div class="weight-label"><span>Goals + Assists /90</span><span class="val" id="w-ga-val">25%</span></div>
+        <input type="range" id="w-ga" min="0" max="100" value="25">
+      </div>
+      <div class="weight-row">
+        <div class="weight-label"><span>Progressive actions /90</span><span class="val" id="w-prog-val">35%</span></div>
+        <input type="range" id="w-prog" min="0" max="100" value="35">
+      </div>
+      <div class="weight-row">
+        <div class="weight-label"><span>Defensive actions /90</span><span class="val" id="w-def-val">20%</span></div>
+        <input type="range" id="w-def" min="0" max="100" value="20">
+      </div>
+      <div class="weight-row">
+        <div class="weight-label"><span>Youth factor</span><span class="val" id="w-age-val">20%</span></div>
+        <input type="range" id="w-age" min="0" max="100" value="20">
+      </div>
+      <div class="weight-total ok" id="weight-total">Total: 100% -- weights are normalized automatically</div>
+      <button class="reset-btn" id="reset-weights">Reset weights to default</button>
+    </div>
+
+    <div class="card" id="auth-card" style="display:none; margin-top:16px;">
+      <h2>Account (server mode)</h2>
+      <div id="auth-form">
+        <div class="field">
+          <label for="auth-username">Username</label>
+          <input type="text" id="auth-username" autocomplete="username" placeholder="scout_name">
+        </div>
+        <div class="field">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" autocomplete="current-password" placeholder="min. 6 characters">
+        </div>
+        <div class="auth-btn-row">
+          <button id="auth-login-btn" class="primary">Log in</button>
+          <button id="auth-register-btn">Register</button>
+        </div>
+        <div class="auth-status" id="auth-status">Sign in to sync your shortlist and notes to the server.</div>
+      </div>
+      <div id="auth-logged" style="display:none;">
+        Signed in as <b id="auth-user"></b><br>
+        Shortlist &amp; notes sync to your account.
+        <button class="reset-btn" id="auth-logout-btn" style="margin-top:8px;">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="summary-bar">
+      <div class="stat-chip"><b id="stat-count">0</b>players shown</div>
+      <div class="stat-chip"><b id="stat-hp">0</b>high priority</div>
+      <div class="stat-chip"><b id="stat-unrep">0</b>unrepresented flags</div>
+      <div class="stat-chip"><b id="stat-avg-age">0</b>avg. age</div>
+      <div class="stat-chip"><b id="stat-new">0</b>added this week</div>
+      <div class="stat-chip"><b id="stat-refreshed">--</b>database last refreshed</div>
+    </div>
+
+    <div class="toolbar" id="table-toolbar">
+      <button class="tb-btn" id="export-view-btn" title="Download the current filtered + sorted view as CSV">Export view (CSV)</button>
+      <button class="tb-btn" id="export-shortlist-btn" title="Download your shortlisted players as CSV">Export shortlist (CSV)</button>
+      <span class="pager">
+        <button class="tb-btn" id="page-prev">&larr; Prev</button>
+        <span id="page-info">Page 1 of 1</span>
+        <button class="tb-btn" id="page-next">Next &rarr;</button>
+        <select id="page-size" title="Players per page">
+          <option value="25">25 / page</option>
+          <option value="50" selected>50 / page</option>
+          <option value="100">100 / page</option>
+          <option value="all">All</option>
+        </select>
+      </span>
+      <span class="api-status" id="api-status">Offline mode -- embedded data, browser-local shortlists/notes</span>
+    </div>
+
+    <div class="table-wrap">
+      <table id="player-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th></th>
+            <th data-key="name">Player</th>
+            <th data-key="position">Pos</th>
+            <th data-key="country">Country</th>
+            <th data-key="tier">Tier</th>
+            <th data-key="age">Age</th>
+            <th data-key="marketValue">Market Value</th>
+            <th data-key="hasAgent">Agent</th>
+            <th data-key="contractExpires">Contract</th>
+            <th data-key="undervaluedScore">Undervalued</th>
+            <th data-key="flag">Flag</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+      <div class="empty-state" id="empty-state" style="display:none;">No players match the current filters.</div>
+    </div>
+  </div>
+</div>
+
+<footer class="note">
+  Sample data -- __PLAYER_COUNT__ fictional players across __COUNTRY_COUNT__ countries on six continents, structured like real scraped data (see the Research &amp; Build Plan document). Undervalued Score = Performance Percentile minus Market Visibility Percentile, computed within each player's position group. Tactical System Fit is a rules-based read of a player's statistical profile, not a scout's tactical assessment. This database refreshes weekly -- 10 new players added and every player's stats re-checked -- so this is a filter to build a shortlist, not a verdict -- always follow up with real scouting.
+</footer>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <div>
+        <h3 id="m-name"></h3>
+        <div class="sub" id="m-sub"></div>
+      </div>
+      <div>
+        <button class="modal-star-btn" id="modal-star-btn">&#9734; Add to Shortlist</button>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+    </div>
+    <div class="pill-row" id="m-pills"></div>
+    <div class="market-card" id="m-market"></div>
+    <div id="m-bars"></div>
+    <div class="stats-card" id="m-stats"></div>
+    <div class="uv-explain" id="m-explain"></div>
+    <div class="system-card" id="m-system"></div>
+    <div class="contact-card" id="m-contact"></div>
+    <div class="transfer-card" id="m-transfer"></div>
+    <div class="notes-card" id="m-notes">
+      <h4>Your Notes</h4>
+      <textarea id="m-notes-text" placeholder="Private notes about this player -- saved locally in your browser only, never sent anywhere."></textarea>
+      <div class="notes-saved-hint" id="m-notes-hint"></div>
+    </div>
+  </div>
+</div>
+
+<div class="compare-bar" id="compare-bar">
+  <span id="compare-count">0 selected for comparison</span>
+  <button id="compare-view-btn">Compare</button>
+  <button class="clear" id="compare-clear-btn">Clear</button>
+</div>
+
+<div class="modal-overlay" id="compare-modal-overlay">
+  <div class="modal" id="compare-modal" style="max-width:920px;">
+    <div class="modal-head">
+      <div>
+        <h3>Compare Players</h3>
+        <div class="sub">Side-by-side view of the players you've checked below the table (up to 4 at once)</div>
+      </div>
+      <button class="modal-close" id="compare-modal-close">&times;</button>
+    </div>
+    <div class="radar-wrap" id="compare-radar-wrap"></div>
+    <div id="compare-table-wrap"></div>
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------
+   SAMPLE DATA -- 100 fictional players mirroring the Player Data sheet in
+   Scouting_Model.xlsx. Ages 17-26, spanning 32 countries across six
+   continents. Replace with real scraped data (see Research & Build Plan
+   doc for sources) by swapping this array.
+--------------------------------------------------------------------- */
+const RAW_PLAYERS = [
+__RAW_PLAYERS__
+];
+
+const FIELDS = __FIELDS__;
+
+/* ---------------------------------------------------------------------
+   Realistic Transfer Targets data -- reused verbatim from player_gen.py /
+   transfer_pathways.py so the app's fictional destination clubs are drawn
+   from the exact same name pools as the rest of the sample dataset.
+--------------------------------------------------------------------- */
+const SOURCE_CITIES = __SOURCE_CITIES__;
+const PATHWAYS = __PATHWAYS__;
+const DEST_CITIES = __DEST_CITIES__;
+const CLUB_SUFFIX = __CLUB_SUFFIX__;
+const COUNTRY_TLD = __COUNTRY_TLD__;
+const COUNTRY_FEDERATION = __COUNTRY_FEDERATION__;
+
+let PLAYERS = RAW_PLAYERS.map(row => {
+  const p = {};
+  FIELDS.forEach((f,i) => p[f] = row[i]);
+  return p;
+});
+
+const TIER_MULT = {2: 1.00, 3: 0.85, 4: 0.70};
+const DEFAULT_WEIGHTS = {ga: 25, prog: 35, def: 20, age: 20};
+const HP_THRESHOLD = 40, WL_THRESHOLD = 20;
+
+function transfermarktSearchUrl(name) {
+  return "https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=" + encodeURIComponent(name);
+}
+
+let weights = {...DEFAULT_WEIGHTS};
+let sortState = {key: "undervaluedScore", dir: "desc"};
+
+/* ---------------------------------------------------------------------
+   Client-server mode. On load the app pings the REST API (api_server.py)
+   at API_BASE with a short timeout. If it answers, the app switches to
+   server-side filter/sort/pagination plus accounts (JWT auth, per-user
+   shortlist + notes). If not, everything below silently keeps working
+   exactly as before against the embedded RAW_PLAYERS data -- the file
+   still works double-clicked offline.
+--------------------------------------------------------------------- */
+const API_BASE = (typeof location !== "undefined" && location.protocol && location.protocol.indexOf("http") === 0)
+  ? location.origin : "http://localhost:8000";
+const AUTH_KEY = "scoutingAuthV1";
+let apiMode = false;
+let apiMeta = null;
+let authToken = null;
+let authUser = null;
+let keyToId = {};   // "name|country" -> server player id (API mode)
+let idToKey = {};   // server player id -> "name|country"
+let pageState = { page: 1, size: 50 };
+
+function detectApi() {
+  return new Promise(resolve => {
+    if (typeof fetch !== "function") { resolve(null); return; }
+    let settled = false;
+    const finish = v => { if (!settled) { settled = true; resolve(v); } };
+    setTimeout(() => finish(null), 1500);
+    try {
+      fetch(API_BASE + "/api/meta")
+        .then(r => (r && r.ok) ? r.json() : null)
+        .then(m => finish(m && m.players ? m : null))
+        .catch(() => finish(null));
+    } catch (e) { finish(null); }
+  });
+}
+
+function apiFetch(path, opts) {
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers || {});
+  if (authToken) headers["Authorization"] = "Bearer " + authToken;
+  if (opts.body) headers["Content-Type"] = "application/json";
+  return fetch(API_BASE + path, Object.assign({}, opts, { headers }));
+}
+
+function setApiMode(on) {
+  apiMode = on;
+  const authCard = document.getElementById("auth-card");
+  if (authCard) authCard.style.display = on ? "" : "none";
+  const sizeSel = document.getElementById("page-size");
+  const allOpt = sizeSel ? sizeSel.querySelector('option[value="all"]') : null;
+  if (allOpt) allOpt.disabled = on;   // "All" is offline-only
+  if (on && pageState.size === "all") { pageState.size = 50; if (sizeSel) sizeSel.value = "50"; }
+  const status = document.getElementById("api-status");
+  if (status) status.textContent = on
+    ? "Connected to API (" + API_BASE + ") -- server-side data, accounts enabled"
+    : "Offline mode -- embedded data, browser-local shortlists/notes";
+}
+
+/* ---------------------------------------------------------------------
+   Shortlists, comparison, notes, keyboard nav -- all client-side only,
+   backed by localStorage where noted. This file is opened directly as a
+   standalone HTML file in a real browser (not inside a sandboxed iframe),
+   so localStorage is available and persists between visits on this device.
+--------------------------------------------------------------------- */
+const SHORTLIST_KEY = "scoutingShortlistV1";
+const NOTES_KEY = "scoutingNotesV1";
+const COMPARE_MAX = 4;
+
+function playerKey(p) { return p.name + "|" + p.country; }
+
+function loadShortlist() {
+  try { return new Set(JSON.parse(localStorage.getItem(SHORTLIST_KEY) || "[]")); }
+  catch (e) { return new Set(); }
+}
+function saveShortlist() {
+  try { localStorage.setItem(SHORTLIST_KEY, JSON.stringify([...shortlist])); }
+  catch (e) { /* localStorage unavailable -- shortlist still works for this session */ }
+}
+function isShortlisted(p) { return shortlist.has(playerKey(p)); }
+function toggleShortlist(p) {
+  const k = playerKey(p);
+  if (shortlist.has(k)) shortlist.delete(k); else shortlist.add(k);
+  saveShortlist();
+  pushShortlistToServer();
+}
+
+/* Server sync for shortlist (API mode + logged in only; fire-and-forget). */
+function shortlistIds() {
+  return [...shortlist].map(k => keyToId[k]).filter(v => v !== undefined);
+}
+function pushShortlistToServer() {
+  if (!apiMode || !authToken) return;
+  try {
+    apiFetch("/api/me/shortlist", {
+      method: "PUT",
+      body: JSON.stringify({ playerIds: shortlistIds() }),
+    }).catch(() => {});
+  } catch (e) { /* offline blip -- local copy still saved */ }
+}
+async function mergeAndSyncShortlist() {
+  if (!apiMode || !authToken) return;
+  try {
+    const r = await apiFetch("/api/me/shortlist");
+    if (!r.ok) return;
+    const server = (await r.json()).playerIds || [];
+    const union = [...new Set([...server, ...shortlistIds()])];
+    await apiFetch("/api/me/shortlist", {
+      method: "PUT",
+      body: JSON.stringify({ playerIds: union }),
+    });
+    union.forEach(id => { const k = idToKey[id]; if (k) shortlist.add(k); });
+    saveShortlist();
+  } catch (e) { /* keep local shortlist */ }
+}
+
+function loadNotes() {
+  try { return JSON.parse(localStorage.getItem(NOTES_KEY) || "{}"); }
+  catch (e) { return {}; }
+}
+function saveNotes() {
+  try { localStorage.setItem(NOTES_KEY, JSON.stringify(notesStore)); }
+  catch (e) { /* localStorage unavailable -- notes still work for this session */ }
+}
+
+let shortlist = loadShortlist();
+let notesStore = loadNotes();
+let compareSet = new Set();
+let currentRows = [];
+let activeModalPlayerKey = null;
+let activeModalPlayer = null;
+let kbIndex = -1;
+
+function updateCompareBar() {
+  const bar = document.getElementById("compare-bar");
+  const count = compareSet.size;
+  document.getElementById("compare-count").textContent =
+    count + " selected for comparison (max " + COMPARE_MAX + ")";
+  bar.classList.toggle("open", count > 0);
+}
+
+/* ---------------------------------------------------------------------
+   Compare radar chart -- pure inline SVG, one colored polygon per player
+   over 5 percentile axes. GK-only comparisons get keeper axis labels
+   (the underlying percentiles are the keeper-specific ones already).
+--------------------------------------------------------------------- */
+const RADAR_COLORS = ["#cf7d5a", "#6fa87a", "#b08a45", "#7d9cc0"];
+
+function radarSVG(selected) {
+  const allGK = selected.length > 0 && selected.every(p => p.position === "GK");
+  const axes = allGK
+    ? ["Shot-stopping", "Distribution", "Sweeper", "Youth", "Performance"]
+    : ["GA/90", "Progression", "Defensive", "Youth", "Performance"];
+  const valsOf = p => [p.gaPct, p.progPct, p.defPct, p.youthPct, p.performancePct];
+  const W = 420, H = 320, cx = W / 2, cy = H / 2 + 6, R = 108;
+  const angle = i => -Math.PI / 2 + i * 2 * Math.PI / axes.length;
+  const pt = (i, frac) => [cx + Math.cos(angle(i)) * R * frac, cy + Math.sin(angle(i)) * R * frac];
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Percentile radar comparison">`;
+  // rings at 25/50/75/100%
+  [0.25, 0.5, 0.75, 1].forEach(frac => {
+    const ring = axes.map((_, i) => pt(i, frac).map(v => v.toFixed(1)).join(",")).join(" ");
+    s += `<polygon points="${ring}" fill="none" stroke="var(--border)" stroke-width="1" ${frac === 1 ? '' : 'stroke-dasharray="3,3"'} />`;
+  });
+  // axis spokes + labels
+  axes.forEach((label, i) => {
+    const [x, y] = pt(i, 1);
+    s += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1" />`;
+    const [lx, ly] = pt(i, 1.22);
+    const anchor = Math.abs(lx - cx) < 8 ? "middle" : (lx > cx ? "start" : "end");
+    s += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="${anchor}" font-size="11" fill="var(--muted)">${label}</text>`;
+  });
+  // one polygon per player
+  selected.forEach((p, idx) => {
+    const color = RADAR_COLORS[idx % RADAR_COLORS.length];
+    const pts = valsOf(p).map((v, i) => pt(i, Math.max(0.02, v || 0)).map(c => c.toFixed(1)).join(",")).join(" ");
+    s += `<polygon class="radar-poly" points="${pts}" fill="${color}" fill-opacity="0.14" stroke="${color}" stroke-width="2" stroke-linejoin="round" />`;
+  });
+  s += `</svg>`;
+  const legend = `<div class="radar-legend">` + selected.map((p, idx) =>
+    `<span><span class="rl-swatch" style="background:${RADAR_COLORS[idx % RADAR_COLORS.length]}"></span>${p.name}</span>`
+  ).join("") + `</div>`;
+  return s + legend;
+}
+
+function openCompareModal() {
+  if (compareSet.size === 0) return;
+  const scored = computeScores(PLAYERS, weights);
+  const selected = scored.filter(p => compareSet.has(playerKey(p)));
+  document.getElementById("compare-radar-wrap").innerHTML = radarSVG(selected);
+  const rowsDef = [
+    ["Position", p => p.position],
+    ["Country", p => p.country],
+    ["Club", p => p.club],
+    ["League tier", p => p.tier],
+    ["Age", p => p.age],
+    ["Minutes", p => p.minutes],
+    ["Market value", p => fmtMoney(p.displayMarketValue) + (p.marketValueEstimated ? " (est.)" : "")],
+    ["Has agent", p => p.hasAgent],
+    ["Contract expires", p => p.contractExpires],
+    ["Undervalued score", p => p.undervaluedScore.toFixed(1)],
+    ["Flag", p => p.flag || "--"],
+    ["Tactical system fit", p => p.systemFit],
+    ["Attacking output/distribution per90", p => p.gaPer90.toFixed(2)],
+    ["Progression per90", p => p.progPer90.toFixed(2)],
+    ["Defensive/sweeper actions per90", p => p.defPer90.toFixed(2)],
+  ];
+  let html = '<table class="compare-table"><thead><tr><th></th>';
+  selected.forEach(p => { html += "<th>" + p.name + "</th>"; });
+  html += "</tr></thead><tbody>";
+  rowsDef.forEach(([label, fn]) => {
+    html += "<tr><th>" + label + "</th>";
+    selected.forEach(p => { html += "<td>" + fn(p) + "</td>"; });
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  document.getElementById("compare-table-wrap").innerHTML = html;
+  document.getElementById("compare-modal-overlay").classList.add("open");
+}
+function closeCompareModal() {
+  document.getElementById("compare-modal-overlay").classList.remove("open");
+}
+
+function clearKbFocus() {
+  document.querySelectorAll("#table-body tr.kb-focused").forEach(tr => tr.classList.remove("kb-focused"));
+}
+function setKbFocus(idx) {
+  const rows = document.querySelectorAll("#table-body tr");
+  if (!rows.length) { kbIndex = -1; return; }
+  clearKbFocus();
+  kbIndex = Math.max(0, Math.min(rows.length - 1, idx));
+  const tr = rows[kbIndex];
+  tr.classList.add("kb-focused");
+  if (typeof tr.scrollIntoView === "function") tr.scrollIntoView({block: "nearest"});
+}
+
+/* ---------------------------------------------------------------------
+   Scoring engine -- mirrors the formulas in Scoring Model sheet of
+   Scouting_Model.xlsx (per-90 rates, position-relative percentiles,
+   tier-adjusted composite score, undervalued gap, flag thresholds).
+--------------------------------------------------------------------- */
+function percentileRank(values, value) {
+  if (values.length === 0) return 0;
+  const countLE = values.filter(v => v <= value).length;
+  return countLE / values.length;
+}
+
+/* ---------------------------------------------------------------------
+   Tactical system fit -- a rules-based read of which system a player's
+   statistical profile suits best, from the same percentiles used for
+   scoring plus a pass-vs-carry tendency. Mirrors the System Fit formula
+   in the Scoring Model sheet of Scouting_Model.xlsx (Assumptions sheet
+   has the same four cutoffs: 65% high, 55% youth, 62% pass-driven, 45% low).
+--------------------------------------------------------------------- */
+const SF_HI = 0.65, SF_YOUTH = 0.55, SF_PASS = 0.62, SF_LO = 0.45;
+
+function classifySystem(p) {
+  const pct = x => (x * 100).toFixed(0);
+
+  // Goalkeepers get their own branch entirely -- research-grounded GK metrics
+  // (see the Read Me / build_xlsx_v3.py sheet for the same logic): shot-stopping
+  // (gaPct here), distribution (progPct here), sweeper actions (defPct here).
+  if (p.position === "GK") {
+    if (p.defPct >= SF_HI && p.progPct >= SF_HI) {
+      return {
+        label: "Sweeper-Keeper / Build-from-the-Back",
+        note: `High sweeper-actions output (${pct(p.defPct)}th percentile) combined with strong distribution (${pct(p.progPct)}th percentile pass completion) -- suited to a high defensive line and playing out from the back.`,
+      };
+    }
+    if (p.defPct >= SF_HI) {
+      return {
+        label: "Sweeper-Keeper / High Line",
+        note: `High sweeper-actions output (${pct(p.defPct)}th percentile defensive actions outside the box) -- comfortable operating off the line behind a high defense, even if distribution isn't the standout trait.`,
+      };
+    }
+    if (p.gaPct >= SF_HI) {
+      return {
+        label: "Shot-Stopper / Traditional",
+        note: `Strong shot-stopping output (${pct(p.gaPct)}th percentile) -- fits a system that asks the keeper to hold the line and make saves rather than sweep or build attacks.`,
+      };
+    }
+    return {
+      label: "Flexible / Multi-System",
+      note: "No single standout trait among shot-stopping, distribution, or sweeper activity -- a serviceable, well-rounded goalkeeping profile.",
+    };
+  }
+
+  if (p.defPct >= SF_HI && p.youthPct >= SF_YOUTH) {
+    return {
+      label: "High Press / Gegenpressing",
+      note: `High defensive activity (${pct(p.defPct)}th percentile) combined with youth (age ${p.age}) is the engine profile a pressing system needs -- energy to win the ball back high up the pitch.`,
+    };
+  }
+  if (p.progPct >= SF_HI && p.passCarryRatio >= SF_PASS) {
+    return {
+      label: "Possession / Build-from-the-Back",
+      note: `Progresses play mainly through passing (${pct(p.passCarryRatio)}% of progressive actions are passes) with strong overall progression (${pct(p.progPct)}th percentile) -- comfortable circulating the ball and building attacks patiently.`,
+    };
+  }
+  if (p.progPct >= SF_HI) {
+    return {
+      label: "Counter-Attack / Transition",
+      note: `Progresses play mainly by carrying the ball (${pct(1 - p.passCarryRatio)}% of progressive actions are carries) with strong overall progression (${pct(p.progPct)}th percentile) -- a threat in fast transition moments.`,
+    };
+  }
+  if (p.defPct >= SF_HI && p.progPct < SF_LO) {
+    return {
+      label: "Low Block / Park the Bus",
+      note: `Strong defensive output (${pct(p.defPct)}th percentile) without needing to progress much play -- suited to a disciplined deep block that absorbs pressure and defends the box.`,
+    };
+  }
+  if (p.position === "FW" && p.gaPct >= SF_HI && p.progPct < SF_LO) {
+    return {
+      label: "Direct / Target Approach",
+      note: `High end product (${pct(p.gaPct)}th percentile goals + assists) without heavy build-up involvement -- fits systems that get the ball forward quickly and look to finish.`,
+    };
+  }
+  return {
+    label: "Flexible / Multi-System",
+    note: "No single standout trait -- percentiles are fairly balanced across attacking, progression, and defensive metrics, so this player could plausibly slot into more than one system.",
+  };
+}
+
+/* ---------------------------------------------------------------------
+   Realistic Transfer Targets -- a rules-based, deterministic (seeded by
+   player name, so it's stable across re-opens) generator for the top 5
+   destinations a player's statistical profile could realistically land at
+   right now: a domestic step-up, a domestic lateral move, and 2-3 lateral
+   moves to Europe along well-known scouting corridors (see
+   transfer_pathways.py). Destination clubs are fictional, generated from
+   the same name pools as the rest of the sample dataset -- this is model
+   output for planning purposes, not a claim of real interest from any club.
+--------------------------------------------------------------------- */
+function hashSeed(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pickClub(cities, rng, avoidCity) {
+  let pool = cities;
+  if (avoidCity && cities.length > 1) pool = cities.filter(c => c !== avoidCity);
+  const city = pool[Math.floor(rng() * pool.length)];
+  const suffix = CLUB_SUFFIX[Math.floor(rng() * CLUB_SUFFIX.length)];
+  return `${city} ${suffix}`;
+}
+
+function tierLabel(tier) {
+  return tier <= 1 ? "Top Flight" : `Tier ${tier}`;
+}
+
+// Illustrative contact info for a suggested target club -- same generated,
+// not-a-verified-address pattern as the player's own clubContactEmail field
+// (see player_gen.py's slug()/TLD/FEDERATION, mirrored here so the numbers
+// never drift). Falls back gracefully if a country is ever missing from the
+// lookup rather than throwing.
+function slugClub(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function clubContact(club, country) {
+  const tld = COUNTRY_TLD[country];
+  const federation = COUNTRY_FEDERATION[country];
+  return {
+    email: tld ? `info@${slugClub(club)}.${tld}` : null,
+    federation: federation || null,
+  };
+}
+
+function buildTransferTargets(p) {
+  const rng = mulberry32(hashSeed(p.name + "|transfer"));
+  const candidates = [];
+
+  // 1. Domestic step-up: one tier stronger in the player's own country
+  const stepUpTier = p.tier > 2 ? p.tier - 1 : 1;
+  candidates.push({
+    club: pickClub(SOURCE_CITIES[p.country] || [p.country], rng, p.club.split(" ")[0]),
+    country: p.country,
+    tierLabel: tierLabel(stepUpTier),
+    moveType: "step-up",
+    moveTypeLabel: "Domestic Step-Up",
+  });
+
+  // 2. Domestic lateral: a rival club at the same level
+  candidates.push({
+    club: pickClub(SOURCE_CITIES[p.country] || [p.country], rng, p.club.split(" ")[0]),
+    country: p.country,
+    tierLabel: tierLabel(p.tier),
+    moveType: "lateral-domestic",
+    moveTypeLabel: "Domestic Lateral",
+  });
+
+  // 3-5. Lateral-Europe candidates along the two mapped pathway countries
+  const destCountries = PATHWAYS[p.country] || [];
+  destCountries.forEach((destCountry, idx) => {
+    const cities = DEST_CITIES[destCountry] || [destCountry];
+    const strongerLean = p.performancePct >= 0.6;
+    candidates.push({
+      club: pickClub(cities, rng, null),
+      country: destCountry,
+      tierLabel: strongerLean ? "Similar level, stronger league" : "Similar level",
+      moveType: "lateral-europe",
+      moveTypeLabel: `Lateral -- ${destCountry}`,
+    });
+    // add a second candidate from the same pathway country for variety on the last one
+    if (idx === destCountries.length - 1) {
+      candidates.push({
+        club: pickClub(cities, rng, null),
+        country: destCountry,
+        tierLabel: "Similar level",
+        moveType: "lateral-europe",
+        moveTypeLabel: `Lateral -- ${destCountry}`,
+      });
+    }
+  });
+
+  // fit score: baseline + performance/undervalued/youth signal + small deterministic jitter,
+  // with a step-up penalty when performance doesn't yet support a bigger jump
+  candidates.forEach(c => {
+    let fit = 50 + p.performancePct * 25 + Math.max(0, Math.min(1, p.undervaluedScore / 100)) * 15;
+    fit += (26 - p.age) * 1.1;
+    if (c.moveType === "step-up" && p.performancePct < 0.55) fit -= 18;
+    if (c.moveType === "lateral-domestic") fit -= 4;
+    fit += (rng() - 0.5) * 12;
+    c.fit = Math.max(5, Math.min(97, Math.round(fit)));
+  });
+
+  candidates.sort((a, b) => b.fit - a.fit);
+  const top5 = candidates.slice(0, 5);
+  top5.forEach((c, i) => {
+    c.rank = i + 1;
+    const contact = clubContact(c.club, c.country);
+    c.contactEmail = contact.email;
+    c.federation = contact.federation;
+  });
+  return top5;
+}
+
+/* ---------------------------------------------------------------------
+   Estimated market value engine. When a player has no market value on
+   record (marketValue is 0/unknown -- true for roughly a quarter of the
+   sample, mirroring how lower-tier player data really has gaps), this
+   estimates one from their statistical output, league tier, position, and
+   age. Deterministic (seeded by name) so the number is stable across
+   re-opens. This is a display/estimate aid; the Undervalued Score still
+   uses only the known market value, so estimates never distort the scoring.
+--------------------------------------------------------------------- */
+function estimateMarketValue(p) {
+  const minutes = p.minutes || 1;
+  const m90 = minutes / 90;
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  let base; // 0..~1.2 quality signal
+  if (p.position === "GK") {
+    const savePct = (p.saves + p.goalsConceded) > 0 ? p.saves / (p.saves + p.goalsConceded) : 0.6;
+    const gc90 = m90 ? p.goalsConceded / m90 : 1.5;
+    const csRate = m90 ? (p.cleanSheets || 0) / m90 : 0;
+    base = 0.5 * clamp01((savePct - 0.55) / 0.35)
+         + 0.3 * clamp01(1 - gc90 / 2.2)
+         + 0.2 * clamp01(csRate / 0.45);
+  } else {
+    const ga90 = m90 ? (p.goals + p.assists) / m90 : 0;
+    const prog90 = m90 ? (p.progPasses + p.progCarries) / m90 : 0;
+    const def90 = m90 ? p.tklInt / m90 : 0;
+    const attW = p.position === "FW" ? 0.55 : p.position === "MF" ? 0.4 : 0.25;
+    const progW = p.position === "MF" ? 0.4 : 0.33;
+    const defW = p.position === "DF" ? 0.45 : 0.27;
+    base = attW * clamp01(ga90 / 0.7)
+         + progW * clamp01(prog90 / 7)
+         + defW * clamp01(def90 / 4.5);
+  }
+  const tierFactor = p.tier <= 2 ? 1.15 : p.tier === 3 ? 1.0 : 0.85;
+  const youthFactor = 1 + Math.max(0, 24 - p.age) * 0.02; // younger = potential premium
+  const minutesFactor = 0.75 + 0.25 * clamp01(minutes / 2200); // reward a real sample of minutes
+  // small deterministic jitter so estimates aren't visibly formulaic
+  const jitter = 0.9 + 0.2 * mulberry32(hashSeed(p.name + "|mv"))();
+  let val = (12000 + base * 130000) * tierFactor * youthFactor * minutesFactor * jitter;
+  val = Math.max(9000, Math.min(160000, val));
+  return Math.round(val / 100) * 100;
+}
+
+/* ---------------------------------------------------------------------
+   Market value history + a live line chart. Builds a deterministic
+   ~15-month value history for a player (seeded by name so it's stable),
+   trending toward their current value with volatility, and a drift shaped
+   by their Undervalued Score and age (undervalued + young -> rising line).
+   The last point is "now"; the dataset refreshes weekly, so the latest
+   point moves each refresh -- hence the live indicator on the chart.
+--------------------------------------------------------------------- */
+function marketHistory(p, currentValue) {
+  const rng = mulberry32(hashSeed(p.name + "|mvhist"));
+  const N = 15;
+  // Direction: undervalued & young trend up into the current value (so the
+  // history started lower); overvalued/older trend flatter or down.
+  const uv = typeof p.undervaluedScore === "number" ? p.undervaluedScore : 0;
+  const youth = Math.max(0, 24 - p.age);
+  const trend = (uv / 100) * 0.6 + youth * 0.03; // total fractional rise over the window
+  const startFrac = Math.max(0.45, Math.min(1.1, 1 - trend));
+  const startValue = Math.max(6000, currentValue * startFrac);
+  const points = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    const smooth = startValue + (currentValue - startValue) * t;
+    const noise = (rng() - 0.5) * currentValue * 0.10;
+    let v = Math.max(4000, smooth + noise);
+    points.push(v);
+  }
+  points[N - 1] = currentValue; // anchor the latest point to the shown value
+  return points;
+}
+
+function renderMarketChart(points, opts) {
+  const w = 460, h = 120, padX = 8, padY = 14;
+  const min = Math.min(...points), max = Math.max(...points);
+  const span = max - min || 1;
+  const x = i => padX + (i / (points.length - 1)) * (w - 2 * padX);
+  const y = v => padY + (1 - (v - min) / span) * (h - 2 * padY);
+  const linePts = points.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const areaPts = `${padX},${h - padY} ` + linePts + ` ${(w - padX)},${h - padY}`;
+  const lastX = x(points.length - 1), lastY = y(points[points.length - 1]);
+  const up = points[points.length - 1] >= points[0];
+  const stroke = up ? "var(--accent)" : "var(--danger)";
+  return `
+    <svg class="market-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Market value trend">
+      <polygon points="${areaPts}" fill="${up ? 'rgba(76,175,125,0.12)' : 'rgba(239,106,99,0.12)'}" />
+      <polyline points="${linePts}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+      <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="4.5" fill="${stroke}" />
+      <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="4.5" fill="${stroke}" opacity="0.4">
+        <animate attributeName="r" values="4.5;9;4.5" dur="1.8s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.4;0;0.4" dur="1.8s" repeatCount="indefinite" />
+      </circle>
+    </svg>`;
+}
+
+/* ---------------------------------------------------------------------
+   Per-player system-fit breakdown -- turns the tactical fit into an
+   explicit set of percentile drivers so you can see WHY a player was
+   tagged with a system, not just the label. Marks the driver(s) that
+   actually triggered the classification as the "key" ones.
+--------------------------------------------------------------------- */
+function fitBreakdown(p) {
+  const pctv = x => Math.round((x || 0) * 100);
+  if (p.position === "GK") {
+    const drivers = [
+      { label: "Shot-stopping", pct: pctv(p.gaPct), key: p.gaPct >= SF_HI },
+      { label: "Distribution", pct: pctv(p.progPct), key: p.progPct >= SF_HI },
+      { label: "Sweeper activity", pct: pctv(p.defPct), key: p.defPct >= SF_HI },
+      { label: "Youth", pct: pctv(p.youthPct), key: false },
+    ];
+    return drivers;
+  }
+  return [
+    { label: "Attacking output", pct: pctv(p.gaPct), key: p.gaPct >= SF_HI },
+    { label: "Progression", pct: pctv(p.progPct), key: p.progPct >= SF_HI },
+    { label: "Defensive actions", pct: pctv(p.defPct), key: p.defPct >= SF_HI },
+    { label: "Youth", pct: pctv(p.youthPct), key: p.youthPct >= SF_YOUTH },
+  ];
+}
+
+function computeScores(players, w) {
+  const total = w.ga + w.prog + w.def + w.age;
+  const norm = total > 0 ? {
+    ga: w.ga/total, prog: w.prog/total, def: w.def/total, age: w.age/total
+  } : {ga:0, prog:0, def:0, age:0};
+
+  // Factor 1/2/3 are position-conditional, mirroring the xlsx formulas:
+  // goalkeepers use Shot-Stopping (saves minus a goals-conceded penalty, a
+  // simplified PSxG+/- proxy), Distribution (pass completion %), and
+  // Sweeper Actions/90 instead of the outfield GA/Prog/Def metrics -- see
+  // classifySystem()'s comment block for the research this is grounded in.
+  const withRates = players.map(p => {
+    const isGK = p.position === "GK";
+    const m90 = p.minutes ? p.minutes / 90 : 0;
+    // Detailed, statistics-based per-90 breakdowns surfaced in the modal.
+    const derived = isGK ? {
+      savePct: (p.saves + p.goalsConceded) > 0 ? p.saves / (p.saves + p.goalsConceded) : 0,
+      gcPer90: m90 ? p.goalsConceded / m90 : 0,
+      savesPer90: m90 ? p.saves / m90 : 0,
+      csRate: m90 ? (p.cleanSheets || 0) / m90 : 0,     // clean sheets per 90 (per match)
+      sweepPer90: m90 ? (p.sweeperActions || 0) / m90 : 0,
+      distributionPct: p.passCompletionPct || 0,
+    } : {
+      goalsPer90: m90 ? p.goals / m90 : 0,
+      assistsPer90: m90 ? p.assists / m90 : 0,
+      progPassPer90: m90 ? p.progPasses / m90 : 0,
+      progCarryPer90: m90 ? p.progCarries / m90 : 0,
+      tklIntPer90: m90 ? p.tklInt / m90 : 0,
+      gaShare: (p.goals + p.assists) > 0 ? p.goals / (p.goals + p.assists) : 0,
+    };
+    const est = estimateMarketValue(p);
+    const known = p.marketValue && p.marketValue > 0;
+    return {
+      ...p,
+      ...derived,
+      gaPer90: isGK
+        ? (p.minutes ? (p.saves - 1.5 * p.goalsConceded) / p.minutes * 90 : 0)
+        : (p.minutes ? (p.goals + p.assists) / p.minutes * 90 : 0),
+      progPer90: isGK
+        ? (p.passCompletionPct || 0)
+        : (p.minutes ? (p.progPasses + p.progCarries) / p.minutes * 90 : 0),
+      defPer90: isGK
+        ? (p.minutes ? (p.sweeperActions || 0) / p.minutes * 90 : 0)
+        : (p.minutes ? p.tklInt / p.minutes * 90 : 0),
+      // Estimated value engine: when a real market value isn't on record
+      // (marketValue is 0), the engine produces an estimate from the player's
+      // stats, tier, position, and age so the app can still show a value. The
+      // Undervalued Score still uses the raw (known) marketValue, so estimates
+      // are shown for information only and never silently change the scoring.
+      estimatedMarketValue: est,
+      displayMarketValue: known ? p.marketValue : est,
+      marketValueEstimated: !known,
+    };
+  });
+
+  const byPos = {};
+  withRates.forEach(p => { (byPos[p.position] ||= []).push(p); });
+
+  withRates.forEach(p => {
+    const peers = byPos[p.position];
+    p.gaPct = percentileRank(peers.map(x => x.gaPer90), p.gaPer90);
+    p.progPct = percentileRank(peers.map(x => x.progPer90), p.progPer90);
+    p.defPct = percentileRank(peers.map(x => x.defPer90), p.defPer90);
+    p.youthPct = percentileRank(peers.map(x => -x.age), -p.age);
+    p.tierMult = TIER_MULT[p.tier] ?? 1;
+    p.performanceScore = (p.gaPct*norm.ga + p.progPct*norm.prog + p.defPct*norm.def + p.youthPct*norm.age) * p.tierMult;
+    p.passCarryRatio = (p.progPasses + p.progCarries) ? p.progPasses / (p.progPasses + p.progCarries) : 0;
+    const fit = classifySystem(p);
+    p.systemFit = fit.label;
+    p.systemNote = fit.note;
+  });
+
+  withRates.forEach(p => {
+    const peers = byPos[p.position];
+    p.performancePct = percentileRank(peers.map(x => x.performanceScore), p.performanceScore);
+    p.marketPct = percentileRank(peers.map(x => x.marketValue), p.marketValue);
+    p.undervaluedScore = (p.performancePct - p.marketPct) * 100;
+
+    if (p.undervaluedScore >= HP_THRESHOLD) {
+      p.flag = p.hasAgent === "No" ? "High Priority - Unrepresented" : "High Priority";
+    } else if (p.undervaluedScore >= WL_THRESHOLD) {
+      p.flag = p.hasAgent === "No" ? "Watchlist - Unrepresented" : "Watchlist";
+    } else {
+      p.flag = "";
+    }
+  });
+
+  return withRates;
+}
+
+/* ---------------------------------------------------------------------
+   Rendering
+--------------------------------------------------------------------- */
+function flagClass(flag) {
+  if (flag === "High Priority - Unrepresented") return "hp-unrep";
+  if (flag === "High Priority") return "hp";
+  if (flag === "Watchlist - Unrepresented") return "wl-unrep";
+  if (flag === "Watchlist") return "wl";
+  return "none";
+}
+
+function fmtMoney(v) {
+  if (!v) return "--";
+  return "€" + v.toLocaleString("en-US");
+}
+
+function populateCountryFilter() {
+  const sel = document.getElementById("f-country");
+  const countries = [...new Set(PLAYERS.map(p => p.country))].sort();
+  countries.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c; opt.textContent = c;
+    sel.appendChild(opt);
+  });
+}
+
+function getFilters() {
+  const agentVals = [...document.querySelectorAll(".agent-cb:checked")].map(cb => cb.value);
+  return {
+    search: document.getElementById("f-search").value.trim().toLowerCase(),
+    position: document.getElementById("f-position").value,
+    country: document.getElementById("f-country").value,
+    tier: document.getElementById("f-tier").value,
+    maxAge: parseInt(document.getElementById("f-age").value, 10),
+    agents: agentVals,
+    shortlistOnly: document.getElementById("f-shortlist-only").checked,
+  };
+}
+
+function applyFiltersAndSort(scored) {
+  const f = getFilters();
+  let rows = scored.filter(p => {
+    if (f.search && !(p.name.toLowerCase().includes(f.search)
+                      || p.club.toLowerCase().includes(f.search)
+                      || p.country.toLowerCase().includes(f.search))) return false;
+    if (f.position && p.position !== f.position) return false;
+    if (f.country && p.country !== f.country) return false;
+    if (f.tier && String(p.tier) !== f.tier) return false;
+    if (p.age > f.maxAge) return false;
+    if (!f.agents.includes(p.hasAgent)) return false;
+    if (f.shortlistOnly && !isShortlisted(p)) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let av = a[sortState.key], bv = b[sortState.key];
+    if (typeof av === "string") { av = av.toLowerCase(); bv = bv.toLowerCase(); }
+    if (av < bv) return sortState.dir === "asc" ? -1 : 1;
+    if (av > bv) return sortState.dir === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  return rows;
+}
+
+function latestDateAdded() {
+  return PLAYERS.reduce((max, p) => (p.dateAdded && p.dateAdded > max) ? p.dateAdded : max, "");
+}
+
+function latestDateUpdated() {
+  return PLAYERS.reduce((max, p) => (p.lastUpdated && p.lastUpdated > max) ? p.lastUpdated : max, "");
+}
+
+function renderTable() {
+  if (apiMode) { renderTableApi(); return; }
+  const scored = computeScores(PLAYERS, weights);
+  const allRows = applyFiltersAndSort(scored);
+  const total = allRows.length;
+  const size = pageState.size === "all" ? Math.max(1, total) : pageState.size;
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (pageState.page > pages) pageState.page = pages;
+  if (pageState.page < 1) pageState.page = 1;
+  const rows = pageState.size === "all"
+    ? allRows
+    : allRows.slice((pageState.page - 1) * size, pageState.page * size);
+  renderRows(rows);
+  renderStats({
+    total: total,
+    hp: allRows.filter(p => p.flag.startsWith("High Priority")).length,
+    unrep: allRows.filter(p => p.flag.endsWith("Unrepresented")).length,
+    avgAge: total ? (allRows.reduce((s, p) => s + p.age, 0) / total).toFixed(1) : "0",
+    newCount: PLAYERS.filter(p => p.dateAdded === latestDateAdded()).length,
+    refreshed: latestDateUpdated() || "--",
+  });
+  updatePager(total, pages);
+  updateSortHeaders();
+}
+
+/* Server-side filter/sort/pagination (API mode). Falls back to offline mode
+   permanently if the API disappears mid-session. */
+let apiFetchSeq = 0;
+
+function buildPlayersQuery(includePaging) {
+  const f = getFilters();
+  const params = new URLSearchParams();
+  if (f.search) params.set("q", f.search);
+  if (f.position) params.set("position", f.position);
+  if (f.country) params.set("country", f.country);
+  if (f.tier) params.set("tier", f.tier);
+  params.set("maxAge", String(f.maxAge));
+  if (f.agents.length === 0) params.set("hasAgent", "__none__");
+  else if (f.agents.length < 3) params.set("hasAgent", f.agents.join(","));
+  if (f.shortlistOnly) {
+    const ids = shortlistIds();
+    params.set("ids", ids.length ? ids.join(",") : "0");
+  }
+  params.set("sort", sortState.key);
+  params.set("dir", sortState.dir);
+  if (weights.ga !== DEFAULT_WEIGHTS.ga || weights.prog !== DEFAULT_WEIGHTS.prog
+      || weights.def !== DEFAULT_WEIGHTS.def || weights.age !== DEFAULT_WEIGHTS.age) {
+    params.set("wGa", String(weights.ga));
+    params.set("wProg", String(weights.prog));
+    params.set("wDef", String(weights.def));
+    params.set("wAge", String(weights.age));
+  }
+  if (includePaging) {
+    params.set("page", String(pageState.page));
+    params.set("pageSize", String(pageState.size === "all" ? 100 : pageState.size));
+  }
+  return params;
+}
+
+async function renderTableApi() {
+  const seq = ++apiFetchSeq;
+  let data;
+  try {
+    const res = await fetch(API_BASE + "/api/players?" + buildPlayersQuery(true).toString());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    data = await res.json();
+  } catch (e) {
+    setApiMode(false);   // API dropped -- degrade gracefully to embedded data
+    renderTable();
+    return;
+  }
+  if (seq !== apiFetchSeq) return;  // a newer request superseded this one
+  const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  if (pageState.page > pages) pageState.page = pages;
+  renderRows(data.items);
+  renderStats({
+    total: data.total,
+    hp: data.summary.highPriority,
+    unrep: data.summary.unrepresented,
+    avgAge: data.summary.avgAge,
+    newCount: apiMeta ? apiMeta.newThisWeek : 0,
+    refreshed: apiMeta ? apiMeta.lastUpdated : "--",
+  });
+  updatePager(data.total, pages);
+  updateSortHeaders();
+}
+
+function renderStats(s) {
+  document.getElementById("stat-count").textContent = s.total;
+  document.getElementById("stat-hp").textContent = s.hp;
+  document.getElementById("stat-unrep").textContent = s.unrep;
+  document.getElementById("stat-avg-age").textContent = s.avgAge;
+  document.getElementById("stat-new").textContent = s.newCount;
+  document.getElementById("stat-refreshed").textContent = s.refreshed;
+}
+
+function updatePager(total, pages) {
+  document.getElementById("page-info").textContent = "Page " + pageState.page + " of " + pages;
+  document.getElementById("page-prev").disabled = pageState.page <= 1;
+  document.getElementById("page-next").disabled = pageState.page >= pages;
+}
+
+function renderRows(rows) {
+  const tbody = document.getElementById("table-body");
+  tbody.innerHTML = "";
+
+  document.getElementById("empty-state").style.display = rows.length ? "none" : "block";
+  document.getElementById("player-table").style.display = rows.length ? "table" : "none";
+
+  const newestBatch = latestDateAdded();
+  currentRows = rows;
+  kbIndex = -1;
+
+  rows.forEach(p => {
+    const tr = document.createElement("tr");
+    tr.tabIndex = 0;
+    const isNew = p.dateAdded === newestBatch;
+    const pk = playerKey(p);
+    const starred = isShortlisted(p);
+    const compareChecked = compareSet.has(pk) ? "checked" : "";
+    tr.innerHTML = `
+      <td><button class="star-btn ${starred ? 'saved' : ''}" title="Toggle shortlist">${starred ? '★' : '☆'}</button></td>
+      <td><input type="checkbox" class="compare-cb" title="Add to comparison" ${compareChecked}></td>
+      <td class="name">${p.name}${isNew ? '<span class="new-badge">NEW</span>' : ''}</td>
+      <td>${p.position}</td>
+      <td>${p.country}</td>
+      <td>${p.tier}</td>
+      <td>${p.age}</td>
+      <td>${p.marketValueEstimated ? `<span title="Estimated -- no value on record" style="color:var(--amber)">${fmtMoney(p.displayMarketValue)} <span style="font-size:9px;">est</span></span>` : fmtMoney(p.marketValue)}</td>
+      <td><span class="agent-tag ${p.hasAgent.toLowerCase()}">${p.hasAgent}</span></td>
+      <td>${p.contractExpires}</td>
+      <td class="uv-score ${p.undervaluedScore >= 0 ? 'uv-pos' : 'uv-neg'}">${p.undervaluedScore.toFixed(1)}</td>
+      <td>${p.flag ? `<span class="badge ${flagClass(p.flag)}">${p.flag}</span>` : `<span class="badge none">--</span>`}</td>
+    `;
+    tr.addEventListener("click", e => {
+      if (e.target.closest(".star-btn") || e.target.closest(".compare-cb")) return;
+      openModal(p);
+    });
+    tr.querySelector(".star-btn").addEventListener("click", e => {
+      e.stopPropagation();
+      toggleShortlist(p);
+      renderTable();
+    });
+    tr.querySelector(".compare-cb").addEventListener("click", e => e.stopPropagation());
+    tr.querySelector(".compare-cb").addEventListener("change", e => {
+      if (e.target.checked) {
+        if (compareSet.size >= COMPARE_MAX) {
+          e.target.checked = false;
+          alert("You can compare up to " + COMPARE_MAX + " players at once. Uncheck one first.");
+          return;
+        }
+        compareSet.add(pk);
+      } else {
+        compareSet.delete(pk);
+      }
+      updateCompareBar();
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---------------------------------------------------------------------
+   CSV export. buildCsv() is a pure function (rows -> CSV string with
+   RFC-4180 quoting) so it's directly testable; the two export buttons
+   feed it the current filtered+sorted view or the shortlist and trigger
+   a Blob download.
+--------------------------------------------------------------------- */
+const CSV_COLUMNS = ["name","position","country","tier","age","marketValue","hasAgent",
+                     "contractExpires","undervaluedScore","flag","club","league",
+                     "systemFit","displayMarketValue","marketValueEstimated"];
+
+function csvEscape(v) {
+  if (v === null || v === undefined) v = "";
+  v = String(v);
+  return /[",\\n\\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+function buildCsv(rows) {
+  const lines = [CSV_COLUMNS.join(",")];
+  rows.forEach(p => {
+    lines.push(CSV_COLUMNS.map(c => {
+      let v = p[c];
+      if (c === "undervaluedScore" && typeof v === "number") v = v.toFixed(1);
+      if (typeof v === "boolean") v = v ? "yes" : "no";
+      return csvEscape(v);
+    }).join(","));
+  });
+  return lines.join("\\n");
+}
+
+function buildViewCsv() {
+  return buildCsv(applyFiltersAndSort(computeScores(PLAYERS, weights)));
+}
+
+function buildShortlistCsv() {
+  return buildCsv(computeScores(PLAYERS, weights).filter(p => isShortlisted(p)));
+}
+
+function downloadCsv(filename, text) {
+  try {
+    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) {
+    alert("CSV export isn't supported in this browser.");
+  }
+}
+
+async function exportViewCsv() {
+  if (!apiMode) { downloadCsv("scouting_view.csv", buildViewCsv()); return; }
+  try {
+    const params = buildPlayersQuery(false);
+    params.set("page", "1");
+    params.set("pageSize", "2000");
+    const res = await fetch(API_BASE + "/api/players?" + params.toString());
+    const data = await res.json();
+    downloadCsv("scouting_view.csv", buildCsv(data.items));
+  } catch (e) {
+    downloadCsv("scouting_view.csv", buildViewCsv());  // offline fallback
+  }
+}
+
+async function exportShortlistCsv() {
+  if (!apiMode) { downloadCsv("scouting_shortlist.csv", buildShortlistCsv()); return; }
+  try {
+    const ids = shortlistIds();
+    const params = new URLSearchParams();
+    params.set("ids", ids.length ? ids.join(",") : "0");
+    params.set("page", "1");
+    params.set("pageSize", "2000");
+    params.set("sort", "undervaluedScore");
+    params.set("dir", "desc");
+    const res = await fetch(API_BASE + "/api/players?" + params.toString());
+    const data = await res.json();
+    downloadCsv("scouting_shortlist.csv", buildCsv(data.items));
+  } catch (e) {
+    downloadCsv("scouting_shortlist.csv", buildShortlistCsv());
+  }
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll("#player-table thead th").forEach(th => {
+    th.classList.remove("sorted");
+    th.removeAttribute("data-dir");
+    if (th.dataset.key === sortState.key) {
+      th.classList.add("sorted");
+      th.setAttribute("data-dir", sortState.dir === "asc" ? "▲" : "▼");
+    }
+  });
+}
+
+function openModal(p) {
+  document.getElementById("m-name").textContent = p.name;
+  document.getElementById("m-sub").textContent = `${p.position} · ${p.club} · ${p.league} (Tier ${p.tier}) · ${p.country}`;
+
+  const pk = playerKey(p);
+  activeModalPlayerKey = pk;
+  activeModalPlayer = p;
+  const starBtn = document.getElementById("modal-star-btn");
+  function syncStarBtn() {
+    const starred = isShortlisted(p);
+    starBtn.textContent = starred ? "★ In Shortlist" : "☆ Add to Shortlist";
+    starBtn.className = "modal-star-btn" + (starred ? " saved" : "");
+  }
+  syncStarBtn();
+  starBtn.onclick = () => { toggleShortlist(p); syncStarBtn(); renderTable(); };
+
+  const notesText = notesStore[pk] || "";
+  document.getElementById("m-notes-text").value = notesText;
+  document.getElementById("m-notes-hint").textContent =
+    notesText ? "Saved locally in your browser." : "Not saved yet -- notes save automatically as you type (this device only).";
+  // Logged in against the API: prefer the server copy of the note.
+  if (apiMode && authToken && p.id !== undefined) {
+    apiFetch("/api/me/notes/" + p.id).then(r => r.ok ? r.json() : null).then(d => {
+      if (d && activeModalPlayerKey === pk && d.text) {
+        document.getElementById("m-notes-text").value = d.text;
+        notesStore[pk] = d.text;
+        saveNotes();
+        document.getElementById("m-notes-hint").textContent = "Synced with your account on the server.";
+      }
+    }).catch(() => {});
+  }
+
+  const mvPill = p.marketValueEstimated
+    ? `${fmtMoney(p.displayMarketValue)} (est.)`
+    : fmtMoney(p.marketValue);
+  document.getElementById("m-pills").innerHTML = `
+    <span class="pill">Age ${p.age}</span>
+    <span class="pill">${p.minutes} min</span>
+    <span class="pill">${mvPill}</span>
+    <span class="pill">Agent: ${p.hasAgent}</span>
+    <span class="pill">Contract to ${p.contractExpires}</span>
+    <span class="pill">Added ${p.dateAdded}</span>
+    <span class="pill">Updated ${p.lastUpdated}</span>
+  `;
+
+  // Live market value graph -- history trends into the current (or estimated)
+  // value, with the latest point marked live because the dataset refreshes weekly.
+  const mvCurrent = p.displayMarketValue || 0;
+  const history = marketHistory(p, mvCurrent);
+  const first = history[0], last = history[history.length - 1];
+  const deltaPct = first > 0 ? ((last - first) / first) * 100 : 0;
+  const up = deltaPct >= 0;
+  document.getElementById("m-market").innerHTML = `
+    <h4>Market Value Trend</h4>
+    <div class="market-head">
+      <div class="market-current">${fmtMoney(mvCurrent)}${p.marketValueEstimated ? '<span class="mv-est-tag">ESTIMATED</span>' : ''}</div>
+      <div class="market-delta ${up ? 'up' : 'down'}">${up ? '&#9650;' : '&#9660;'} ${Math.abs(deltaPct).toFixed(1)}% over ~15 mo</div>
+    </div>
+    ${renderMarketChart(history)}
+    <div class="market-live"><span class="live-dot"></span>Live -- latest point updates with the weekly database refresh</div>
+    ${p.marketValueEstimated
+      ? '<div class="market-note">No market value on record for this player, so the engine estimated one from their stats, league tier, position, and age. The trend line is modeled around that estimate.</div>'
+      : '<div class="market-note">Illustrative value history modeled around the current sample value -- not a real transfer-market feed.</div>'}
+  `;
+
+  const isGK = p.position === "GK";
+  const bars = isGK ? [
+    ["Shot-Stopping /90 (saves minus goals-conceded penalty, percentile vs. peer GKs)", p.gaPct, p.gaPer90.toFixed(2)],
+    ["Distribution (pass completion %)", p.progPct, p.progPer90.toFixed(1) + "%"],
+    ["Sweeper actions /90 (defensive actions outside the box)", p.defPct, p.defPer90.toFixed(2)],
+    ["Youth factor (younger = higher)", p.youthPct, p.age],
+    ["Overall performance percentile", p.performancePct, p.performanceScore.toFixed(3)],
+    ["Market visibility percentile", p.marketPct, fmtMoney(p.marketValue)],
+  ] : [
+    ["Goals+Assists /90 (percentile vs. peers at position)", p.gaPct, p.gaPer90.toFixed(2)],
+    ["Progressive actions /90", p.progPct, p.progPer90.toFixed(2)],
+    ["Defensive actions /90", p.defPct, p.defPer90.toFixed(2)],
+    ["Youth factor (younger = higher)", p.youthPct, p.age],
+    ["Overall performance percentile", p.performancePct, p.performanceScore.toFixed(3)],
+    ["Market visibility percentile", p.marketPct, fmtMoney(p.marketValue)],
+  ];
+  document.getElementById("m-bars").innerHTML = bars.map(([label, pct, raw]) => `
+    <div class="bar-block">
+      <div class="bar-label"><span>${label}</span><span>${(pct*100).toFixed(0)}% &nbsp;(${raw})</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(pct*100).toFixed(1)}%"></div></div>
+    </div>
+  `).join("");
+
+  // Detailed, statistics-based evaluation grid (raw numbers behind the
+  // percentiles). Goalkeepers get their own keeper-specific stat set.
+  const num = (v, d) => (v === undefined || v === null || isNaN(v)) ? "--" : (d === 0 ? Math.round(v).toLocaleString("en-US") : v.toFixed(d));
+  const statCells = isGK ? [
+    [num(p.savePct * 100, 1) + "%", "Save % (saves / shots on target faced)"],
+    [num(p.savesPer90, 2), "Saves per 90"],
+    [num(p.gcPer90, 2), "Goals conceded per 90"],
+    [num(p.distributionPct, 1) + "%", "Pass completion (distribution)"],
+    [num(p.sweepPer90, 2), "Sweeper actions per 90 (outside box)"],
+    [num(p.csRate, 2), "Clean sheets per 90"],
+    [num(p.cleanSheets, 0), "Clean sheets (total)"],
+    [num(p.saves, 0), "Saves (total)"],
+    [num(p.minutes, 0), "Minutes played"],
+  ] : [
+    [num(p.goalsPer90, 2), "Goals per 90"],
+    [num(p.assistsPer90, 2), "Assists per 90"],
+    [num(p.gaPer90, 2), "Goals + assists per 90"],
+    [num(p.progPassPer90, 2), "Progressive passes per 90"],
+    [num(p.progCarryPer90, 2), "Progressive carries per 90"],
+    [num(p.tklIntPer90, 2), "Tackles + interceptions per 90"],
+    [num(p.gaShare * 100, 0) + "%", "Share of G+A that are goals"],
+    [num(p.goals + p.assists, 0), "Goal contributions (total)"],
+    [num(p.minutes, 0), "Minutes played"],
+  ];
+  document.getElementById("m-stats").innerHTML = `
+    <h4>${isGK ? "Goalkeeper Statistics" : "Statistics"} &mdash; per-90 &amp; totals</h4>
+    <div class="stat-grid">
+      ${statCells.map(([v, l]) => `<div class="stat-cell"><div class="sc-val">${v}</div><div class="sc-label">${l}</div></div>`).join("")}
+    </div>
+  `;
+
+  const gapDesc = p.undervaluedScore >= 0
+    ? "performs better than the market currently prices them"
+    : "is currently priced above what their underlying performance supports";
+
+  // Model transparency: every factor's raw per-90 -> percentile -> weight ->
+  // contribution, the tier multiplier, and the final formula with this
+  // player's actual numbers substituted in.
+  const twTotal = weights.ga + weights.prog + weights.def + weights.age;
+  const tw = twTotal > 0
+    ? { ga: weights.ga / twTotal, prog: weights.prog / twTotal, def: weights.def / twTotal, age: weights.age / twTotal }
+    : { ga: 0, prog: 0, def: 0, age: 0 };
+  const factorRows = isGK ? [
+    ["Shot-stopping /90", p.gaPer90.toFixed(2), p.gaPct, tw.ga],
+    ["Distribution (pass completion %)", p.progPer90.toFixed(1), p.progPct, tw.prog],
+    ["Sweeper actions /90", p.defPer90.toFixed(2), p.defPct, tw.def],
+    ["Youth (age " + p.age + ")", p.age, p.youthPct, tw.age],
+  ] : [
+    ["Goals + Assists /90", p.gaPer90.toFixed(2), p.gaPct, tw.ga],
+    ["Progressive actions /90", p.progPer90.toFixed(2), p.progPct, tw.prog],
+    ["Defensive actions /90", p.defPer90.toFixed(2), p.defPct, tw.def],
+    ["Youth (age " + p.age + ")", p.age, p.youthPct, tw.age],
+  ];
+  const weightedSum = factorRows.reduce((s, r) => s + r[2] * r[3], 0);
+  const transparencyHtml = `
+    <details class="uv-transparency" id="m-transparency">
+      <summary>How this score was calculated</summary>
+      <table class="transparency-table">
+        <thead><tr><th>Factor</th><th>Raw</th><th>Percentile</th><th>Weight</th><th>Contribution</th></tr></thead>
+        <tbody>
+          ${factorRows.map(([label, raw, pct, wgt]) => `<tr><td>${label}</td><td>${raw}</td><td>${(pct * 100).toFixed(1)}%</td><td>${(wgt * 100).toFixed(1)}%</td><td>${(pct * wgt).toFixed(4)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="transparency-line">Weighted sum = <b>${weightedSum.toFixed(4)}</b> &times; tier multiplier <b>${p.tierMult.toFixed(2)}</b> (Tier ${p.tier}) = performanceScore <b>${p.performanceScore.toFixed(4)}</b></div>
+      <div class="transparency-line">That performanceScore ranks at the <b>${(p.performancePct * 100).toFixed(1)}th percentile</b> among ${p.position}s; the known market value of ${fmtMoney(p.marketValue)} ranks at the <b>${(p.marketPct * 100).toFixed(1)}th percentile</b>.${p.marketValueEstimated ? " (No value on record -- the market percentile uses the raw 0, never the display estimate, so estimates cannot inflate the score.)" : ""}</div>
+      <div class="uv-formula" id="m-uv-formula">Undervalued Score = (performance percentile &minus; market percentile) &times; 100 = (${p.performancePct.toFixed(3)} &minus; ${p.marketPct.toFixed(3)}) &times; 100 = ${p.undervaluedScore.toFixed(1)}</div>
+    </details>`;
+
+  document.getElementById("m-explain").innerHTML = `
+    <b>Undervalued Score: ${p.undervaluedScore.toFixed(1)}</b> -- this player ${gapDesc}
+    within their position group. ${p.flag ? `Flagged as <b>${p.flag}</b>.` : "Not currently flagged at the selected thresholds."}
+    ${p.hasAgent === "No" ? " No agent on record -- see the Contact &amp; Verification section below before reaching out." : ""}
+    ${transparencyHtml}
+  `;
+
+  const drivers = fitBreakdown(p);
+  const driversHtml = drivers.map(d => `
+    <div class="fit-driver ${d.key ? 'key' : ''}">
+      <span class="fd-label">${d.label}${d.key ? ' &#9733;' : ''}</span>
+      <span class="fd-track"><span class="fd-fill" style="width:${d.pct}%"></span></span>
+      <span class="fd-val">${d.pct}%</span>
+    </div>`).join("");
+  const keyDrivers = drivers.filter(d => d.key).map(d => d.label);
+  const whyLine = keyDrivers.length
+    ? `Why this system: the profile is driven by ${keyDrivers.join(" + ").toLowerCase()} (starred above), which is what tips it into <b>${p.systemFit}</b>.`
+    : `Why this system: no single trait dominates, so the profile reads as balanced and flexible rather than specialized.`;
+  document.getElementById("m-system").innerHTML = `
+    <h4>Tactical System Fit</h4>
+    <div class="system-badge">${p.systemFit}</div>
+    <div class="system-note">${p.systemNote}</div>
+    <div class="fit-breakdown">
+      <h5>Breakdown -- percentile drivers (vs. peers at this position)</h5>
+      ${driversHtml}
+      <div class="system-note" style="margin-top:8px;">${whyLine}</div>
+    </div>
+  `;
+
+  const tmUrl = transfermarktSearchUrl(p.name);
+  const isMinor = p.age < 18;
+  document.getElementById("m-contact").innerHTML = `
+    <h4>Contact &amp; Verification</h4>
+    <div class="contact-row">
+      <span class="label">Club contact (official)</span>
+      <a href="mailto:${p.clubContactEmail}">${p.clubContactEmail}</a>
+    </div>
+    <div class="contact-row">
+      <span class="label">Preferred route</span>
+      <span>${p.contactRoute}</span>
+    </div>
+    <div class="contact-row">
+      <span class="label">Verify age / identity</span>
+      <a href="${tmUrl}" target="_blank" rel="noopener noreferrer">Search Transfermarkt &#8599;</a>
+    </div>
+    <div class="contact-row">
+      <span class="label">Also check</span>
+      <span>${p.federationRegistry}</span>
+    </div>
+    ${isMinor ? `<div class="minor-warning">This player is ${p.age} -- a minor. Contact the club's youth/academy office only. Do not attempt to reach the player directly.</div>` : ""}
+    <div class="verify-note">Club email is an illustrative sample format, not a verified address -- confirm it on the club's official website before use. The Transfermarkt link runs a live search rather than a fixed profile, so it never misattributes this sample data to a real person.</div>
+  `;
+
+  const targets = buildTransferTargets(p);
+  document.getElementById("m-transfer").innerHTML = `
+    <h4>Realistic Transfer Targets</h4>
+    ${targets.map(t => `
+      <div class="transfer-item">
+        <div class="transfer-rank">${t.rank}</div>
+        <div class="transfer-main">
+          <div class="transfer-club">${t.club} <span class="move-type-badge ${t.moveType}">${t.moveTypeLabel}</span></div>
+          <div class="transfer-meta">${t.country} &middot; ${t.tierLabel}</div>
+          <div class="transfer-contact">
+            ${t.contactEmail ? `<a href="mailto:${t.contactEmail}">${t.contactEmail}</a>` : "Contact email not available for this country"}
+            ${t.federation ? ` &middot; <span class="transfer-federation">${t.federation}</span>` : ""}
+          </div>
+        </div>
+        <div class="transfer-fit">
+          <b>${t.fit}%</b> fit
+          <div class="transfer-fit-track"><div class="transfer-fit-fill" style="width:${t.fit}%"></div></div>
+        </div>
+      </div>
+    `).join("")}
+    <div class="transfer-note">Illustrative destinations generated from the same sample-data pools as the rest of this dataset, along realistic scouting corridors for ${p.country} -- not real clubs' actual interest. Fit % blends performance percentile, the Undervalued Score gap, and age. Contact emails are generated in the same illustrative format as the player's own club contact (info@[club-name].[country domain]) -- not verified addresses. Confirm on the club's official website before reaching out, same as any contact in this app.</div>
+  `;
+
+  document.getElementById("modal-overlay").classList.add("open");
+}
+
+function closeModal() {
+  document.getElementById("modal-overlay").classList.remove("open");
+}
+
+/* ---------------------------------------------------------------------
+   Wiring
+--------------------------------------------------------------------- */
+function syncWeightLabels() {
+  document.getElementById("w-ga-val").textContent = weights.ga + "%";
+  document.getElementById("w-prog-val").textContent = weights.prog + "%";
+  document.getElementById("w-def-val").textContent = weights.def + "%";
+  document.getElementById("w-age-val").textContent = weights.age + "%";
+  const total = weights.ga + weights.prog + weights.def + weights.age;
+  const totalEl = document.getElementById("weight-total");
+  totalEl.textContent = `Total: ${total}% -- weights are normalized automatically`;
+  totalEl.className = "weight-total " + (total === 100 ? "ok" : "off");
+}
+
+/* ---------------------------------------------------------------------
+   Auth (API mode only). JWT stored in localStorage; on first login the
+   browser-local shortlist is pushed to the server and merged with any
+   shortlist already saved on the account.
+--------------------------------------------------------------------- */
+function loadAuth() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
+    if (saved && saved.token) { authToken = saved.token; authUser = saved.username; }
+  } catch (e) { /* ignore */ }
+}
+
+function updateAuthUI() {
+  const form = document.getElementById("auth-form");
+  const logged = document.getElementById("auth-logged");
+  if (!form || !logged) return;
+  if (authToken) {
+    form.style.display = "none";
+    logged.style.display = "";
+    document.getElementById("auth-user").textContent = authUser || "";
+  } else {
+    form.style.display = "";
+    logged.style.display = "none";
+  }
+}
+
+function setAuthStatus(msg, cls) {
+  const el = document.getElementById("auth-status");
+  if (el) { el.textContent = msg; el.className = "auth-status" + (cls ? " " + cls : ""); }
+}
+
+async function doAuth(path, actionLabel) {
+  const username = document.getElementById("auth-username").value.trim();
+  const password = document.getElementById("auth-password").value;
+  if (!username || !password) { setAuthStatus("Enter a username and password first.", "err"); return; }
+  setAuthStatus(actionLabel + "...", "");
+  let data = {};
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setAuthStatus(typeof data.detail === "string" ? data.detail : (actionLabel + " failed."), "err");
+      return;
+    }
+  } catch (e) {
+    setAuthStatus("Could not reach the API server.", "err");
+    return;
+  }
+  authToken = data.token;
+  authUser = data.username;
+  try { localStorage.setItem(AUTH_KEY, JSON.stringify({ token: authToken, username: authUser })); } catch (e) {}
+  document.getElementById("auth-password").value = "";
+  setAuthStatus("Signed in as " + authUser + ".", "ok");
+  updateAuthUI();
+  await mergeAndSyncShortlist();
+  renderTable();
+}
+
+function logout() {
+  authToken = null;
+  authUser = null;
+  try { localStorage.removeItem(AUTH_KEY); } catch (e) {}
+  setAuthStatus("Logged out. Shortlist and notes remain saved in this browser.", "");
+  updateAuthUI();
+}
+
+async function initApiMode(meta) {
+  apiMeta = meta;
+  setApiMode(true);
+  try {
+    const res = await fetch(API_BASE + "/api/players/ids");
+    const d = await res.json();
+    (d.players || []).forEach(pl => {
+      const k = pl.name + "|" + pl.country;
+      keyToId[k] = pl.id;
+      idToKey[pl.id] = k;
+    });
+  } catch (e) { /* id map unavailable -- shortlist sync degrades gracefully */ }
+  loadAuth();
+  updateAuthUI();
+  if (authToken) await mergeAndSyncShortlist();
+  renderTable();
+}
+
+function initEvents() {
+  ["f-search","f-position","f-country","f-tier"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => { pageState.page = 1; renderTable(); });
+  });
+  document.getElementById("f-age").addEventListener("input", e => {
+    document.getElementById("f-age-val").textContent = e.target.value;
+    pageState.page = 1;
+    renderTable();
+  });
+  document.querySelectorAll(".agent-cb").forEach(cb => cb.addEventListener("change", () => { pageState.page = 1; renderTable(); }));
+  document.getElementById("f-shortlist-only").addEventListener("change", () => { pageState.page = 1; renderTable(); });
+
+  // Pagination + CSV export toolbar
+  document.getElementById("page-prev").addEventListener("click", () => {
+    if (pageState.page > 1) { pageState.page--; renderTable(); }
+  });
+  document.getElementById("page-next").addEventListener("click", () => {
+    pageState.page++;
+    renderTable();
+  });
+  document.getElementById("page-size").addEventListener("change", e => {
+    const v = e.target.value;
+    if (v === "all" && apiMode) { e.target.value = String(pageState.size); return; }
+    pageState.size = v === "all" ? "all" : parseInt(v, 10);
+    pageState.page = 1;
+    renderTable();
+  });
+  document.getElementById("export-view-btn").addEventListener("click", exportViewCsv);
+  document.getElementById("export-shortlist-btn").addEventListener("click", exportShortlistCsv);
+
+  // Auth (only visible in API mode)
+  document.getElementById("auth-login-btn").addEventListener("click", () => doAuth("/api/auth/login", "Logging in"));
+  document.getElementById("auth-register-btn").addEventListener("click", () => doAuth("/api/auth/register", "Registering"));
+  document.getElementById("auth-logout-btn").addEventListener("click", logout);
+  document.getElementById("auth-password").addEventListener("keydown", e => {
+    if (e.key === "Enter") doAuth("/api/auth/login", "Logging in");
+  });
+
+  document.getElementById("reset-filters").addEventListener("click", () => {
+    document.getElementById("f-search").value = "";
+    document.getElementById("f-position").value = "";
+    document.getElementById("f-country").value = "";
+    document.getElementById("f-tier").value = "";
+    document.getElementById("f-age").value = 26;
+    document.getElementById("f-age-val").textContent = 26;
+    document.querySelectorAll(".agent-cb").forEach(cb => cb.checked = true);
+    document.getElementById("f-shortlist-only").checked = false;
+    renderTable();
+  });
+
+  [["w-ga","ga"],["w-prog","prog"],["w-def","def"],["w-age","age"]].forEach(([id,key]) => {
+    document.getElementById(id).addEventListener("input", e => {
+      weights[key] = parseInt(e.target.value, 10);
+      syncWeightLabels();
+      renderTable();
+    });
+  });
+  document.getElementById("reset-weights").addEventListener("click", () => {
+    weights = {...DEFAULT_WEIGHTS};
+    document.getElementById("w-ga").value = weights.ga;
+    document.getElementById("w-prog").value = weights.prog;
+    document.getElementById("w-def").value = weights.def;
+    document.getElementById("w-age").value = weights.age;
+    syncWeightLabels();
+    renderTable();
+  });
+
+  document.querySelectorAll("#player-table thead th").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      if (sortState.key === key) {
+        sortState.dir = sortState.dir === "asc" ? "desc" : "asc";
+      } else {
+        sortState.key = key;
+        sortState.dir = "desc";
+      }
+      pageState.page = 1;
+      renderTable();
+    });
+  });
+
+  document.getElementById("modal-close").addEventListener("click", closeModal);
+  document.getElementById("modal-overlay").addEventListener("click", e => {
+    if (e.target.id === "modal-overlay") closeModal();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") { closeModal(); closeCompareModal(); }
+  });
+
+  document.getElementById("m-notes-text").addEventListener("input", e => {
+    if (!activeModalPlayerKey) return;
+    notesStore[activeModalPlayerKey] = e.target.value;
+    saveNotes();
+    if (apiMode && authToken && activeModalPlayer && activeModalPlayer.id !== undefined) {
+      apiFetch("/api/me/notes/" + activeModalPlayer.id, {
+        method: "PUT",
+        body: JSON.stringify({ text: e.target.value }),
+      }).then(r => {
+        if (r.ok) document.getElementById("m-notes-hint").textContent = "Synced with your account on the server.";
+      }).catch(() => {});
+      document.getElementById("m-notes-hint").textContent = "Saved locally -- syncing to server...";
+    } else {
+      document.getElementById("m-notes-hint").textContent = "Saved locally in your browser.";
+    }
+  });
+
+  document.getElementById("compare-view-btn").addEventListener("click", openCompareModal);
+  document.getElementById("compare-clear-btn").addEventListener("click", () => {
+    compareSet.clear();
+    updateCompareBar();
+    renderTable();
+  });
+  document.getElementById("compare-modal-close").addEventListener("click", closeCompareModal);
+  document.getElementById("compare-modal-overlay").addEventListener("click", e => {
+    if (e.target.id === "compare-modal-overlay") closeCompareModal();
+  });
+
+  /* Keyboard navigation: up/down move a focus highlight through the visible
+     rows, Enter opens the focused player, "/" jumps to search. Skipped while
+     typing in a form field or while a modal is open, so it never fights with
+     normal text entry. */
+  document.addEventListener("keydown", e => {
+    const tag = document.activeElement ? document.activeElement.tagName : "";
+    const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+    if (e.key === "/" && !typing) {
+      e.preventDefault();
+      document.getElementById("f-search").focus();
+      return;
+    }
+    if (typing) return;
+
+    const modalOpen = document.getElementById("modal-overlay").classList.contains("open") ||
+                       document.getElementById("compare-modal-overlay").classList.contains("open");
+    if (modalOpen) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setKbFocus(kbIndex + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setKbFocus(kbIndex - 1);
+    } else if (e.key === "Enter") {
+      if (kbIndex >= 0 && currentRows[kbIndex]) openModal(currentRows[kbIndex]);
+    }
+  });
+}
+
+function init() {
+  populateCountryFilter();
+  syncWeightLabels();
+  initEvents();
+  renderTable();   // offline-first render; API mode swaps in if the server answers
+  detectApi().then(meta => { if (meta) initApiMode(meta); });
+}
+
+init();
+</script>
+</body>
+</html>
+"""
+
+player_count = len(players)
+country_count = len(set(p["country"] for p in players))
+html = (html.replace("__RAW_PLAYERS__", raw_players_js)
+            .replace("__FIELDS__", fields_js)
+            .replace("__PLAYER_COUNT__", str(player_count))
+            .replace("__COUNTRY_COUNT__", str(country_count))
+            .replace("__SOURCE_CITIES__", source_cities_js)
+            .replace("__PATHWAYS__", pathways_js)
+            .replace("__DEST_CITIES__", dest_cities_js)
+            .replace("__CLUB_SUFFIX__", club_suffix_js)
+            .replace("__COUNTRY_TLD__", country_tld_js)
+            .replace("__COUNTRY_FEDERATION__", country_federation_js))
+
+with open("Scouting_App_Prototype.html", "w", encoding="utf-8") as f:
+    f.write(html)
+
+print("wrote html, length", len(html))
