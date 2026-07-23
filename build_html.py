@@ -150,6 +150,74 @@ html = """<!DOCTYPE html>
   }
   .stat-chip b { display: block; font-size: 18px; color: var(--navy-light); font-weight: 700; }
 
+  /* RevOps Insights panel */
+  .insights { margin-bottom: 16px; }
+  .insights-head {
+    display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+    padding: 6px 2px; margin-bottom: 4px;
+  }
+  .insights-head h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text); margin: 0; font-weight: 700;
+  }
+  .insights-head .chev { color: var(--muted); font-size: 12px; transition: transform .15s; }
+  .insights.collapsed .chev { transform: rotate(-90deg); }
+  .insights-head .subtle { font-size: 11px; color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .insights-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  }
+  @media (max-width: 1100px) { .insights-grid { grid-template-columns: 1fr; } }
+  .insights.collapsed .insights-grid { display: none; }
+  .ins-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .ins-card h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; font-weight: 700;
+  }
+  .ins-card h3 .pill-score {
+    float: right; font-weight: 800; letter-spacing: 0; text-transform: none; font-size: 13px;
+  }
+  .grade-a { color: var(--accent); }
+  .grade-b { color: var(--amber); }
+  .grade-c { color: var(--danger); }
+
+  /* Data Health */
+  .health-gauge {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;
+  }
+  .health-gauge .big { font-size: 30px; font-weight: 800; }
+  .health-gauge .lbl { font-size: 11px; color: var(--muted); }
+  .health-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 11.5px;
+  }
+  .health-row .hr-label { flex: 1; color: var(--muted); }
+  .health-row .hr-track { width: 90px; height: 6px; background: var(--card-alt); border-radius: 4px; overflow: hidden; }
+  .health-row .hr-fill { height: 100%; }
+  .health-row .hr-val { width: 42px; text-align: right; font-weight: 700; color: var(--text); }
+  .health-flag { color: var(--danger); }
+  .health-ok { color: var(--accent); }
+
+  /* Pipeline funnel */
+  .funnel-stage { margin-bottom: 9px; }
+  .funnel-bar-row { display: flex; align-items: center; gap: 8px; }
+  .funnel-bar {
+    height: 26px; border-radius: 5px; display: flex; align-items: center; padding: 0 9px;
+    color: #1f1b17; font-weight: 800; font-size: 12px; min-width: 34px; transition: width .3s;
+  }
+  .funnel-meta { font-size: 10.5px; color: var(--muted); }
+  .funnel-conv { font-size: 10px; color: var(--muted); margin: 1px 0 0 2px; }
+  .f0 { background: #6f8fbf; } .f1 { background: var(--amber); } .f2 { background: var(--navy-light); } .f3 { background: var(--accent); }
+
+  /* Routing engine */
+  .route-rule {
+    border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; margin-bottom: 8px; background: var(--card-alt);
+  }
+  .route-rule .rr-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .route-rule .rr-when { font-size: 11px; color: var(--muted); }
+  .route-rule .rr-when b { color: var(--navy-light); }
+  .route-rule .rr-count { font-weight: 800; color: var(--text); font-size: 13px; white-space: nowrap; }
+  .route-rule .rr-then { font-size: 11.5px; color: var(--text); margin-top: 3px; }
+  .route-note { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   thead th {
     position: sticky; top: 0; background: var(--bg-grad-b); color: #fff;
@@ -578,12 +646,26 @@ html = """<!DOCTYPE html>
 
   <div class="main">
     <div class="summary-bar">
+      <div class="stat-chip"><b id="stat-health" title="Overall data-completeness grade for the database">--</b>data confidence</div>
       <div class="stat-chip"><b id="stat-count">0</b>players shown</div>
       <div class="stat-chip"><b id="stat-hp">0</b>high priority</div>
       <div class="stat-chip"><b id="stat-unrep">0</b>unrepresented flags</div>
       <div class="stat-chip"><b id="stat-avg-age">0</b>avg. age</div>
       <div class="stat-chip"><b id="stat-new">0</b>added this week</div>
       <div class="stat-chip"><b id="stat-refreshed">--</b>database last refreshed</div>
+    </div>
+
+    <div class="insights" id="insights">
+      <div class="insights-head" id="insights-head">
+        <span class="chev">&#9660;</span>
+        <h2>RevOps Insights</h2>
+        <span class="subtle">&mdash; data health scan, pipeline funnel &amp; routing rules (updates with your filters)</span>
+      </div>
+      <div class="insights-grid">
+        <div class="ins-card" id="ins-health"></div>
+        <div class="ins-card" id="ins-funnel"></div>
+        <div class="ins-card" id="ins-routing"></div>
+      </div>
     </div>
 
     <div class="toolbar" id="table-toolbar">
@@ -1546,6 +1628,133 @@ function renderStats(s) {
   document.getElementById("stat-avg-age").textContent = s.avgAge;
   document.getElementById("stat-new").textContent = s.newCount;
   document.getElementById("stat-refreshed").textContent = s.refreshed;
+  renderInsights();
+}
+
+/* ---------------------------------------------------------------------
+   RevOps Insights -- three live panels that reframe this dataset the way a
+   revenue-operations analyst would read a CRM:
+     1. Data Health  -- a data-quality "scan" of the whole database
+                        (completeness, missing values, unknown representation,
+                        stale records, duplicate-review candidates) + a grade.
+     2. Pipeline Funnel -- the flag tiers as pipeline stages with stage-to-
+                        stage conversion, computed over the current filtered view.
+     3. Routing Engine -- the explicit contact-routing rules the app applies,
+                        with a live count of how many players hit each rule.
+   All computed client-side from the embedded dataset, so they work in both
+   API and offline mode and stay correct as filters change.
+--------------------------------------------------------------------- */
+function letterGrade(pct) {
+  if (pct >= 85) return {g: "A", cls: "grade-a"};
+  if (pct >= 70) return {g: "B", cls: "grade-b"};
+  return {g: "C", cls: "grade-c"};
+}
+
+function computeDataHealth(all) {
+  const n = all.length || 1;
+  const missingMV = all.filter(p => !p.marketValue || p.marketValue <= 0).length;
+  const unknownAgent = all.filter(p => p.hasAgent === "Unknown").length;
+  const missingEmail = all.filter(p => !p.clubContactEmail).length;
+  // stale = not updated within 30 days of the newest lastUpdated in the set
+  const latest = all.reduce((m, p) => (p.lastUpdated && p.lastUpdated > m) ? p.lastUpdated : m, "");
+  const latestMs = latest ? Date.parse(latest) : Date.now();
+  const stale = all.filter(p => {
+    if (!p.lastUpdated) return true;
+    return (latestMs - Date.parse(p.lastUpdated)) > 30 * 864e5;
+  }).length;
+  // duplicate-review candidates = the same full name on more than one record
+  const nameCounts = {};
+  all.forEach(p => { nameCounts[p.name] = (nameCounts[p.name] || 0) + 1; });
+  const dupeRecords = Object.values(nameCounts).filter(c => c > 1).reduce((s, c) => s + c, 0);
+  // completeness dimensions (each 0..1, higher = healthier)
+  const dims = [
+    1 - missingMV / n,
+    1 - unknownAgent / n,
+    1 - missingEmail / n,
+    1 - stale / n,
+    1 - dupeRecords / n,
+  ];
+  const score = Math.round((dims.reduce((a, b) => a + b, 0) / dims.length) * 100);
+  return { n, missingMV, unknownAgent, missingEmail, stale, dupeRecords, score };
+}
+
+function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
+
+function renderInsights() {
+  const scoredAll = computeScores(PLAYERS, weights);
+  const view = applyFiltersAndSort(scoredAll); // current filtered view
+  const vN = view.length;
+
+  /* ---- 1. Data Health (full database) ---- */
+  const h = computeDataHealth(scoredAll);
+  const grade = letterGrade(h.score);
+  // mirror the grade into the summary-bar "data confidence" chip
+  const gcol = grade.g === "A" ? "var(--accent)" : grade.g === "B" ? "var(--amber)" : "var(--danger)";
+  const hchip = document.getElementById("stat-health");
+  if (hchip) { hchip.textContent = h.score + "% " + grade.g; hchip.style.color = gcol; }
+  const row = (label, count, flagInvert) => {
+    const p = pct(count, h.n);
+    // for these metrics a HIGH count is bad, so color accordingly
+    const bad = p >= 20;
+    const color = bad ? "var(--danger)" : (p >= 8 ? "var(--amber)" : "var(--accent)");
+    return `<div class="health-row">
+      <span class="hr-label">${label}</span>
+      <span class="hr-track"><span class="hr-fill" style="width:${Math.min(100,p)}%;background:${color}"></span></span>
+      <span class="hr-val">${count.toLocaleString("en-US")}</span>
+    </div>`;
+  };
+  document.getElementById("ins-health").innerHTML = `
+    <h3>Data Health Scan <span class="pill-score ${grade.cls}">${grade.g} &middot; ${h.score}%</span></h3>
+    <div class="health-gauge"><span class="big ${grade.cls}">${h.score}%</span><span class="lbl">overall completeness &middot; ${h.n.toLocaleString("en-US")} records scanned</span></div>
+    ${row("Missing market value", h.missingMV)}
+    ${row("Unknown representation", h.unknownAgent)}
+    ${row("Missing club contact", h.missingEmail)}
+    ${row("Stale (>30d no update)", h.stale)}
+    ${row("Duplicate-review candidates", h.dupeRecords)}
+    <div class="route-note">A data-quality "scan" of the full database, the way RevOps audits a CRM before acting on it. Lower bars are healthier.</div>
+  `;
+
+  /* ---- 2. Pipeline Funnel (current view) ---- */
+  const s0 = vN;
+  const s1 = view.filter(p => p.flag && p.flag.length).length;           // any flag (Watchlist+)
+  const s2 = view.filter(p => p.flag && p.flag.startsWith("High Priority")).length;
+  const s3 = view.filter(p => p.flag === "High Priority - Unrepresented").length;
+  const stages = [
+    { name: "All in view", count: s0, cls: "f0", prev: null },
+    { name: "Flagged (Watchlist+)", count: s1, cls: "f1", prev: s0 },
+    { name: "High Priority", count: s2, cls: "f2", prev: s1 },
+    { name: "Priority & Unrepresented", count: s3, cls: "f3", prev: s2 },
+  ];
+  const maxC = Math.max(s0, 1);
+  document.getElementById("ins-funnel").innerHTML = `
+    <h3>Pipeline Funnel <span class="pill-score" style="color:var(--muted)">${vN.toLocaleString("en-US")} in view</span></h3>
+    ${stages.map(st => {
+      const w = Math.max(6, Math.round((st.count / maxC) * 100));
+      const conv = st.prev != null ? ` &middot; ${pct(st.count, st.prev)}% of prev` : "";
+      return `<div class="funnel-stage">
+        <div class="funnel-meta">${st.name}${conv}</div>
+        <div class="funnel-bar-row"><div class="funnel-bar ${st.cls}" style="width:${w}%">${st.count.toLocaleString("en-US")}</div></div>
+      </div>`;
+    }).join("")}
+    <div class="route-note">Your flag tiers read as a pipeline: from everyone in view down to the hottest, actionable, unrepresented targets.</div>
+  `;
+
+  /* ---- 3. Routing Engine (current view) ---- */
+  const minors = view.filter(p => p.age < 18).length;
+  const agented = view.filter(p => p.age >= 18 && p.hasAgent === "Yes").length;
+  const direct = vN - minors - agented;
+  const rule = (whenHtml, count, thenTxt) => `
+    <div class="route-rule">
+      <div class="rr-top"><span class="rr-when">IF ${whenHtml}</span><span class="rr-count">${count.toLocaleString("en-US")}</span></div>
+      <div class="rr-then">&rarr; ${thenTxt}</div>
+    </div>`;
+  document.getElementById("ins-routing").innerHTML = `
+    <h3>Routing Engine <span class="pill-score" style="color:var(--muted)">${vN.toLocaleString("en-US")} routed</span></h3>
+    ${rule("age &lt; 18 <b>(minor)</b>", minors, "Club youth/academy office only")}
+    ${rule("has agent = <b>Yes</b>", agented, "Route through the player's agent")}
+    ${rule("<b>otherwise</b>", direct, "Club sporting director / first-team office")}
+    <div class="route-note">Rules-based contact assignment -- the same routing logic RevOps automates for lead distribution, applied to the current view.</div>
+  `;
 }
 
 function updatePager(total, pages) {
@@ -2078,6 +2287,10 @@ function initEvents() {
   });
   document.getElementById("export-view-btn").addEventListener("click", exportViewCsv);
   document.getElementById("export-shortlist-btn").addEventListener("click", exportShortlistCsv);
+
+  document.getElementById("insights-head").addEventListener("click", () => {
+    document.getElementById("insights").classList.toggle("collapsed");
+  });
 
   // Auth (only visible in API mode)
   document.getElementById("auth-login-btn").addEventListener("click", () => doAuth("/api/auth/login", "Logging in"));
