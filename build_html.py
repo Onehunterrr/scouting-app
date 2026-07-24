@@ -71,6 +71,26 @@ html = """<!DOCTYPE html>
   }
   header h1 { margin: 0 0 4px; font-size: 22px; }
   header p { margin: 0; font-size: 13px; color: #c4b7a3; }
+  .header-inner { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; max-width: 1500px; }
+  .header-titles { flex: 1; min-width: 0; }
+
+  /* Account control (top-right) */
+  .header-account { position: relative; flex-shrink: 0; }
+  .account-toggle {
+    background: var(--navy); color: #fff; border: 1px solid var(--navy-light); border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .account-toggle:hover { background: var(--navy-light); }
+  .account-panel {
+    display: none; position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: 280px;
+    background: var(--card); border: 1px solid var(--navy-light); border-radius: 10px; padding: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  .account-panel.open { display: block; }
+  .account-panel .ap-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .account-panel .ap-title b { color: var(--navy-light); }
+  .account-panel .ap-sub { font-size: 11.5px; color: var(--muted); margin-bottom: 12px; line-height: 1.4; }
+  .account-panel .field label { color: var(--text); }
 
   .layout {
     display: grid;
@@ -498,18 +518,47 @@ html = """<!DOCTYPE html>
     display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle;
   }
 
-  /* Model transparency panel */
-  .uv-transparency { margin-top: 10px; }
-  .uv-transparency summary { cursor: pointer; font-weight: 700; color: var(--navy-light); font-size: 12px; }
-  .transparency-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 8px 0; }
-  .transparency-table th, .transparency-table td { border-bottom: 1px solid var(--border); padding: 5px 6px; text-align: right; }
-  .transparency-table th:first-child, .transparency-table td:first-child { text-align: left; }
-  .transparency-table th { color: var(--muted); font-weight: 600; }
-  .uv-formula {
-    margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: var(--card);
-    border: 1px solid var(--border); font-weight: 700; font-size: 12px; color: var(--text);
+  /* Model transparency panel -- the differentiator, always visible */
+  .score-calc {
+    margin-top: 14px; padding: 16px; border-radius: 10px;
+    border: 1px solid var(--navy-light); background: linear-gradient(180deg, rgba(193,101,63,0.06), rgba(0,0,0,0));
   }
-  .transparency-line { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+  .score-calc h4 {
+    margin: 0 0 3px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--navy-light); font-weight: 800;
+  }
+  .score-calc .sc-sub { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+  .calc-col-head {
+    display: grid; grid-template-columns: 1fr 52px 46px; gap: 8px; font-size: 9.5px;
+    text-transform: uppercase; letter-spacing: .03em; color: var(--muted); padding: 0 2px 4px; font-weight: 700;
+  }
+  .calc-factor {
+    display: grid; grid-template-columns: 1fr 52px 46px; gap: 8px; align-items: center; margin-bottom: 9px;
+  }
+  .calc-label { font-size: 11.5px; color: var(--text); }
+  .calc-label .cl-raw { color: var(--muted); font-size: 10px; margin-left: 4px; }
+  .calc-barwrap { grid-column: 1 / -1; height: 7px; background: var(--card); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin: -3px 0 3px; }
+  .calc-barfill { height: 100%; background: var(--navy-light); }
+  .calc-pct { text-align: right; font-weight: 700; font-size: 11.5px; color: var(--text); }
+  .calc-wgt { text-align: right; font-size: 11px; color: var(--muted); }
+  .calc-contribrow {
+    display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; padding-top: 10px; border-top: 1px dashed var(--border);
+    font-size: 11.5px; color: var(--muted);
+  }
+  .calc-chip {
+    background: var(--card-alt); border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px;
+    font-size: 11px; color: var(--text);
+  }
+  .calc-chip b { color: var(--navy-light); }
+  .calc-formula {
+    margin-top: 12px; padding: 12px 14px; border-radius: 8px; background: var(--bg-grad-b);
+    border: 1px solid var(--border); text-align: center;
+  }
+  .calc-formula .cf-eq { font-size: 12px; color: var(--muted); }
+  .calc-formula .cf-eq b { color: var(--text); }
+  .calc-formula .cf-result { font-size: 30px; font-weight: 800; margin-top: 4px; display: block; }
+  .calc-formula .cf-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .cf-pos { color: var(--accent); } .cf-neg { color: var(--danger); }
+  .calc-note { font-size: 10.5px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
 
   /* Keyboard focus */
   tbody tr.kb-focused { background: var(--card-alt); outline: 2px solid var(--navy-light); outline-offset: -2px; }
@@ -524,28 +573,88 @@ html = """<!DOCTYPE html>
   }
 
   /* Mobile responsiveness */
+  @media (max-width: 720px) {
+    /* header: stack titles above a full-width account control */
+    .header-inner { flex-direction: column; gap: 12px; }
+    .header-account { width: 100%; }
+    .account-toggle { width: 100%; }
+    .account-panel { width: 100%; left: 0; right: 0; box-sizing: border-box; }
+    .positioning-note, .kb-hint { display: none; }  /* trim dense text on small screens */
+  }
   @media (max-width: 640px) {
-    header { padding: 16px 16px; }
-    header h1 { font-size: 18px; }
+    html, body { max-width: 100%; overflow-x: hidden; }
+    header { padding: 14px 14px; }
+    header h1 { font-size: 17px; line-height: 1.25; }
+    header p { font-size: 12px; }
     .layout { padding: 10px; gap: 12px; }
+    .card { padding: 13px; }
     .summary-bar { gap: 6px; }
-    .stat-chip { padding: 6px 10px; font-size: 11px; }
-    table { font-size: 11px; }
+    .stat-chip { padding: 6px 10px; font-size: 11px; flex: 1 1 40%; }
+    .stat-chip b { font-size: 16px; }
+    /* insights cards already stack (single column under 1100px) -- tighten them */
+    .ins-card { padding: 12px; }
+    /* toolbar wraps instead of overflowing */
+    .toolbar, #table-toolbar { flex-wrap: wrap; gap: 8px; row-gap: 8px; }
+    .toolbar .pager, #table-toolbar .pager { flex-wrap: wrap; }
+    /* table scrolls horizontally inside its wrapper, never breaks the page */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { font-size: 11px; min-width: 640px; }
     thead th, tbody td { padding: 6px 5px; }
-    .modal { padding: 16px; max-height: 94vh; }
+    /* modal + its inner grids fit the viewport */
+    .modal { padding: 15px; max-height: 94vh; width: 100%; }
     .modal-head h3 { font-size: 17px; }
+    .modal-star-btn { padding: 6px 9px; font-size: 11px; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .calc-formula .cf-result { font-size: 26px; }
     .compare-bar { flex-wrap: wrap; padding: 8px 12px; }
-    footer.note { padding: 10px 16px 20px; }
+    #compare-modal { max-width: 100% !important; }
+    .compare-table { font-size: 11px; }
+    footer.note { padding: 10px 16px 20px; font-size: 11px; }
+  }
+  @media (max-width: 380px) {
+    .stat-chip { flex: 1 1 100%; }
+    .auth-btn-row { flex-direction: column; }
   }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Global Lower-Tier Scouting Prototype</h1>
-  <p>Sample data (__PLAYER_COUNT__ players, __COUNTRY_COUNT__ countries, ages 17-26) &middot; refreshed weekly (10 new players added, all stats re-checked) &middot; demonstrates the percentile-based Undervalued Score methodology from the Research &amp; Build Plan</p>
-  <p class="positioning-note">How this differs from Wyscout / InStat / Scout7: those platforms are event-data + video libraries priced for professional clubs, with generic scoring across all leagues. This prototype targets the gap they leave open at the lower-tier/unrepresented-player end: transparent, user-adjustable scoring weights (not a black-box grade), goalkeeper-specific value metrics instead of reusing outfield stats on keepers, and an explicit focus on flagging undervalued, unrepresented players rather than just describing performance.</p>
-  <p class="kb-hint">Keyboard: &uarr;/&darr; move between players &middot; Enter opens the focused player &middot; / jumps to search &middot; Esc closes any open panel</p>
+  <div class="header-inner">
+    <div class="header-titles">
+      <h1>Global Lower-Tier Scouting Prototype</h1>
+      <p>Sample data (__PLAYER_COUNT__ players, __COUNTRY_COUNT__ countries, ages 17-26) &middot; refreshed weekly (10 new players added, all stats re-checked) &middot; demonstrates the percentile-based Undervalued Score methodology from the Research &amp; Build Plan</p>
+      <p class="positioning-note">How this differs from Wyscout / InStat / Scout7: those platforms are event-data + video libraries priced for professional clubs, with generic scoring across all leagues. This prototype targets the gap they leave open at the lower-tier/unrepresented-player end: transparent, user-adjustable scoring weights (not a black-box grade), goalkeeper-specific value metrics instead of reusing outfield stats on keepers, and an explicit focus on flagging undervalued, unrepresented players rather than just describing performance.</p>
+      <p class="kb-hint">Keyboard: &uarr;/&darr; move between players &middot; Enter opens the focused player &middot; / jumps to search &middot; Esc closes any open panel</p>
+    </div>
+    <div class="header-account" id="auth-card" style="display:none;">
+      <button class="account-toggle" id="account-toggle" aria-expanded="false">&#128100; Sign in / Sign up</button>
+      <div class="account-panel" id="account-panel">
+        <div id="auth-form">
+          <div class="ap-title">Sign in or create a free account</div>
+          <div class="ap-sub">Save your shortlist &amp; notes so they follow you across devices.</div>
+          <div class="field">
+            <label for="auth-username">Username</label>
+            <input type="text" id="auth-username" autocomplete="username" placeholder="Choose a username">
+          </div>
+          <div class="field">
+            <label for="auth-password">Password</label>
+            <input type="password" id="auth-password" autocomplete="current-password" placeholder="At least 6 characters">
+          </div>
+          <div class="auth-btn-row">
+            <button id="auth-login-btn" class="primary">Log in</button>
+            <button id="auth-register-btn">Create account</button>
+          </div>
+          <div class="auth-status" id="auth-status">New here? Pick a username &amp; password, then tap <b>Create account</b>.</div>
+        </div>
+        <div id="auth-logged" style="display:none;">
+          <div class="ap-title">Signed in as <b id="auth-user"></b></div>
+          <div class="ap-sub">Your shortlist &amp; notes now sync to your account.</div>
+          <button class="reset-btn" id="auth-logout-btn" style="margin-top:10px;">Log out</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </header>
 
 <div class="layout">
@@ -619,29 +728,6 @@ html = """<!DOCTYPE html>
       <button class="reset-btn" id="reset-weights">Reset weights to default</button>
     </div>
 
-    <div class="card" id="auth-card" style="display:none; margin-top:16px;">
-      <h2>Account (server mode)</h2>
-      <div id="auth-form">
-        <div class="field">
-          <label for="auth-username">Username</label>
-          <input type="text" id="auth-username" autocomplete="username" placeholder="scout_name">
-        </div>
-        <div class="field">
-          <label for="auth-password">Password</label>
-          <input type="password" id="auth-password" autocomplete="current-password" placeholder="min. 6 characters">
-        </div>
-        <div class="auth-btn-row">
-          <button id="auth-login-btn" class="primary">Log in</button>
-          <button id="auth-register-btn">Register</button>
-        </div>
-        <div class="auth-status" id="auth-status">Sign in to sync your shortlist and notes to the server.</div>
-      </div>
-      <div id="auth-logged" style="display:none;">
-        Signed in as <b id="auth-user"></b><br>
-        Shortlist &amp; notes sync to your account.
-        <button class="reset-btn" id="auth-logout-btn" style="margin-top:8px;">Log out</button>
-      </div>
-    </div>
   </div>
 
   <div class="main">
@@ -2059,19 +2145,34 @@ function openModal(p) {
     ["Youth (age " + p.age + ")", p.age, p.youthPct, tw.age],
   ];
   const weightedSum = factorRows.reduce((s, r) => s + r[2] * r[3], 0);
+  const uvPos = p.undervaluedScore >= 0;
+  const factorsHtml = factorRows.map(([label, raw, pct, wgt]) => `
+    <div class="calc-factor">
+      <span class="calc-label">${label}<span class="cl-raw">(${raw})</span></span>
+      <span class="calc-pct">${(pct * 100).toFixed(0)}%</span>
+      <span class="calc-wgt">&times;${(wgt * 100).toFixed(0)}%</span>
+      <span class="calc-barwrap"><span class="calc-barfill" style="width:${(pct * 100).toFixed(1)}%"></span></span>
+    </div>`).join("");
   const transparencyHtml = `
-    <details class="uv-transparency" id="m-transparency">
-      <summary>How this score was calculated</summary>
-      <table class="transparency-table">
-        <thead><tr><th>Factor</th><th>Raw</th><th>Percentile</th><th>Weight</th><th>Contribution</th></tr></thead>
-        <tbody>
-          ${factorRows.map(([label, raw, pct, wgt]) => `<tr><td>${label}</td><td>${raw}</td><td>${(pct * 100).toFixed(1)}%</td><td>${(wgt * 100).toFixed(1)}%</td><td>${(pct * wgt).toFixed(4)}</td></tr>`).join("")}
-        </tbody>
-      </table>
-      <div class="transparency-line">Weighted sum = <b>${weightedSum.toFixed(4)}</b> &times; tier multiplier <b>${p.tierMult.toFixed(2)}</b> (Tier ${p.tier}) = performanceScore <b>${p.performanceScore.toFixed(4)}</b></div>
-      <div class="transparency-line">That performanceScore ranks at the <b>${(p.performancePct * 100).toFixed(1)}th percentile</b> among ${p.position}s; the known market value of ${fmtMoney(p.marketValue)} ranks at the <b>${(p.marketPct * 100).toFixed(1)}th percentile</b>.${p.marketValueEstimated ? " (No value on record -- the market percentile uses the raw 0, never the display estimate, so estimates cannot inflate the score.)" : ""}</div>
-      <div class="uv-formula" id="m-uv-formula">Undervalued Score = (performance percentile &minus; market percentile) &times; 100 = (${p.performancePct.toFixed(3)} &minus; ${p.marketPct.toFixed(3)}) &times; 100 = ${p.undervaluedScore.toFixed(1)}</div>
-    </details>`;
+    <div class="score-calc" id="m-transparency">
+      <h4>How this score was calculated</h4>
+      <div class="sc-sub">Every factor, fully transparent: raw stat &rarr; percentile vs. ${p.position} peers &rarr; weight &rarr; contribution. No black box.</div>
+      <div class="calc-col-head"><span>Factor &nbsp;(raw)</span><span>Pctile</span><span>Weight</span></div>
+      ${factorsHtml}
+      <div class="calc-contribrow">
+        <span class="calc-chip">Weighted sum <b>${weightedSum.toFixed(3)}</b></span>
+        <span>&times;</span>
+        <span class="calc-chip">Tier ${p.tier} multiplier <b>${p.tierMult.toFixed(2)}</b></span>
+        <span>=</span>
+        <span class="calc-chip">Performance <b>${(p.performancePct * 100).toFixed(0)}th pct</b></span>
+      </div>
+      <div class="calc-formula">
+        <span class="cf-eq">Performance <b>${(p.performancePct * 100).toFixed(0)}th</b> &minus; Market visibility <b>${(p.marketPct * 100).toFixed(0)}th</b> percentile</span>
+        <span class="cf-result ${uvPos ? 'cf-pos' : 'cf-neg'}">${uvPos ? '+' : ''}${p.undervaluedScore.toFixed(1)}</span>
+        <span class="cf-lbl">Undervalued Score${p.flag ? ' &middot; ' + p.flag : ''}</span>
+      </div>
+      <div class="calc-note">A positive score means the player performs better than the market currently values them${p.marketValueEstimated ? ". No market value is on record here, so the market percentile uses the raw 0 (never the display estimate) -- estimates can never inflate the score." : "."}</div>
+    </div>`;
 
   document.getElementById("m-explain").innerHTML = `
     <b>Undervalued Score: ${p.undervaluedScore.toFixed(1)}</b> -- this player ${gapDesc}
@@ -2185,14 +2286,21 @@ function loadAuth() {
 function updateAuthUI() {
   const form = document.getElementById("auth-form");
   const logged = document.getElementById("auth-logged");
+  const toggle = document.getElementById("account-toggle");
   if (!form || !logged) return;
   if (authToken) {
     form.style.display = "none";
     logged.style.display = "";
     document.getElementById("auth-user").textContent = authUser || "";
+    if (toggle) toggle.innerHTML = "&#9679; " + (authUser || "Account") + " &#9662;";
+    // once logged in, collapse the panel so the header stays clean
+    const panel = document.getElementById("account-panel");
+    if (panel) panel.classList.remove("open");
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
   } else {
     form.style.display = "";
     logged.style.display = "none";
+    if (toggle) toggle.innerHTML = "&#128100; Sign in / Sign up";
   }
 }
 
@@ -2292,7 +2400,21 @@ function initEvents() {
     document.getElementById("insights").classList.toggle("collapsed");
   });
 
-  // Auth (only visible in API mode)
+  // Auth (only visible in API mode) -- header dropdown
+  const acctToggle = document.getElementById("account-toggle");
+  const acctPanel = document.getElementById("account-panel");
+  acctToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = acctPanel.classList.toggle("open");
+    acctToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  // close the dropdown when clicking outside it
+  document.addEventListener("click", (e) => {
+    if (acctPanel.classList.contains("open") && !e.target.closest("#auth-card")) {
+      acctPanel.classList.remove("open");
+      acctToggle.setAttribute("aria-expanded", "false");
+    }
+  });
   document.getElementById("auth-login-btn").addEventListener("click", () => doAuth("/api/auth/login", "Logging in"));
   document.getElementById("auth-register-btn").addEventListener("click", () => doAuth("/api/auth/register", "Registering"));
   document.getElementById("auth-logout-btn").addEventListener("click", logout);
