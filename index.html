@@ -138,6 +138,62 @@
   }
   .stat-chip b { display: block; font-size: 18px; color: var(--navy-light); font-weight: 700; }
 
+  /* ---- Customizable dashboard ---- */
+  .dash-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 18px 0; flex-wrap: wrap;
+  }
+  .dash-bar-left { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .dash-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text); }
+  .dash-hint { font-size: 11.5px; color: var(--muted); }
+  .dash-bar-right { display: flex; align-items: center; gap: 8px; }
+  .dash-btn {
+    padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card-alt); color: var(--text); cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .dash-btn:hover { background: #332b20; }
+  .dash-btn-primary { border-color: var(--navy); color: var(--navy-light); }
+  .dash-btn-primary:hover { background: rgba(193,101,63,0.14); }
+  body.customizing .dash-btn-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .dash-add-wrap { position: relative; }
+  .dash-add-menu {
+    display: none; position: absolute; right: 0; top: 110%; z-index: 40; min-width: 200px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  .dash-add-menu.open { display: block; }
+  .dash-add-menu .add-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 8px 10px; border: none; background: none; color: var(--text); cursor: pointer;
+    font-size: 12.5px; border-radius: 6px;
+  }
+  .dash-add-menu .add-item:hover { background: var(--card-alt); }
+  .dash-add-menu .add-item .plus { color: var(--accent); font-weight: 800; }
+  .dash-add-menu .add-empty { padding: 8px 10px; font-size: 12px; color: var(--muted); }
+
+  /* customize-mode affordances on every widget */
+  body.customizing [data-widget] {
+    position: relative; outline: 1px dashed var(--navy);
+    outline-offset: 2px; border-radius: 8px;
+  }
+  body.customizing [data-widget]:hover { outline-color: var(--navy-light); }
+  body.customizing [data-widget].drag-over { outline: 2px solid var(--accent); outline-offset: 2px; }
+  body.customizing [data-widget].dragging { opacity: .45; }
+  .wgt-tools {
+    position: absolute; top: -10px; right: -6px; z-index: 20;
+    display: flex; gap: 4px;
+  }
+  .wgt-tools button {
+    width: 20px; height: 20px; line-height: 1; padding: 0; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35);
+  }
+  .wgt-tools .wgt-drag { cursor: grab; color: var(--muted); }
+  .wgt-tools .wgt-remove { color: var(--danger); font-weight: 800; }
+  .wgt-tools .wgt-remove:hover { background: var(--danger-bg); }
+  body:not(.customizing) .wgt-tools { display: none; }
+
   /* RevOps Insights panel */
   .insights { margin-bottom: 16px; }
   .insights-head {
@@ -624,9 +680,24 @@
   </div>
 </header>
 
+<div class="dash-bar">
+  <div class="dash-bar-left">
+    <span class="dash-title">Dashboard</span>
+    <span class="dash-hint" id="dash-hint">Customize your view &mdash; add, remove, or drag panels. Your layout is saved automatically.</span>
+  </div>
+  <div class="dash-bar-right">
+    <div class="dash-add-wrap" id="dash-add-wrap" style="display:none;">
+      <button class="dash-btn" id="dash-add-btn">+ Add widget &#9662;</button>
+      <div class="dash-add-menu" id="dash-add-menu"></div>
+    </div>
+    <button class="dash-btn" id="dash-reset-btn" style="display:none;">Reset layout</button>
+    <button class="dash-btn dash-btn-primary" id="dash-customize-btn">&#9881; Customize</button>
+  </div>
+</div>
+
 <div class="layout">
-  <div class="sidebar">
-    <div class="card" style="margin-bottom:16px;">
+  <div class="sidebar" data-container="sidebar">
+    <div class="card" data-widget="filters" data-widget-name="Filters" style="margin-bottom:16px;">
       <h2>Filters</h2>
       <div class="field">
         <label for="f-search">Search player</label>
@@ -673,7 +744,7 @@
       <button class="reset-btn" id="reset-filters">Reset filters</button>
     </div>
 
-    <div class="card">
+    <div class="card" data-widget="weights" data-widget-name="Scoring Weights">
       <h2>Scoring weights</h2>
       <div class="weight-row">
         <div class="weight-label"><span>Goals + Assists /90</span><span class="val" id="w-ga-val">25%</span></div>
@@ -697,18 +768,18 @@
 
   </div>
 
-  <div class="main">
-    <div class="summary-bar">
-      <div class="stat-chip"><b id="stat-health" title="Overall data-completeness grade for the database">--</b>data confidence</div>
-      <div class="stat-chip"><b id="stat-count">0</b>players shown</div>
-      <div class="stat-chip"><b id="stat-hp">0</b>high priority</div>
-      <div class="stat-chip"><b id="stat-unrep">0</b>unrepresented flags</div>
-      <div class="stat-chip"><b id="stat-avg-age">0</b>avg. age</div>
-      <div class="stat-chip"><b id="stat-new">0</b>added this week</div>
-      <div class="stat-chip"><b id="stat-refreshed">--</b>database last refreshed</div>
+  <div class="main" data-container="main">
+    <div class="summary-bar" data-widget="kpi-summary" data-widget-name="KPI Summary Bar" data-container="summary">
+      <div class="stat-chip" data-widget="kpi-health" data-widget-name="Data Confidence"><b id="stat-health" title="Overall data-completeness grade for the database">--</b>data confidence</div>
+      <div class="stat-chip" data-widget="kpi-count" data-widget-name="Players Shown"><b id="stat-count">0</b>players shown</div>
+      <div class="stat-chip" data-widget="kpi-hp" data-widget-name="High Priority"><b id="stat-hp">0</b>high priority</div>
+      <div class="stat-chip" data-widget="kpi-unrep" data-widget-name="Unrepresented Flags"><b id="stat-unrep">0</b>unrepresented flags</div>
+      <div class="stat-chip" data-widget="kpi-avgage" data-widget-name="Avg. Age"><b id="stat-avg-age">0</b>avg. age</div>
+      <div class="stat-chip" data-widget="kpi-new" data-widget-name="Added This Week"><b id="stat-new">0</b>added this week</div>
+      <div class="stat-chip" data-widget="kpi-refreshed" data-widget-name="Last Refreshed"><b id="stat-refreshed">--</b>database last refreshed</div>
     </div>
 
-    <div class="insights" id="insights">
+    <div class="insights" id="insights" data-widget="insights" data-widget-name="RevOps Insights">
       <div class="insights-head" id="insights-head">
         <span class="chev">&#9660;</span>
         <h2>RevOps Insights</h2>
@@ -721,6 +792,7 @@
       </div>
     </div>
 
+    <div data-widget="table" data-widget-name="Player Table">
     <div class="toolbar" id="table-toolbar">
       <button class="tb-btn" id="export-view-btn" title="Download the current filtered + sorted view as CSV">Export view (CSV)</button>
       <button class="tb-btn" id="export-shortlist-btn" title="Download your shortlisted players as CSV">Export shortlist (CSV)</button>
@@ -760,12 +832,9 @@
       </table>
       <div class="empty-state" id="empty-state" style="display:none;">No players match the current filters.</div>
     </div>
+    </div>
   </div>
 </div>
-
-<footer class="note">
-  Sample data -- 5000 fictional players across 32 countries on six continents, structured like real scraped data (see the Research &amp; Build Plan document). Undervalued Score = Performance Percentile minus Market Visibility Percentile, computed within each player's position group. Tactical System Fit is a rules-based read of a player's statistical profile, not a scout's tactical assessment. This database refreshes weekly -- 10 new players added and every player's stats re-checked -- so this is a filter to build a shortlist, not a verdict -- always follow up with real scouting.
-</footer>
 
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal" id="modal">
@@ -7507,7 +7576,170 @@ function init() {
   detectApi().then(meta => { if (meta) initApiMode(meta); });
 }
 
+/* ============================================================================
+   Customizable dashboard -- add / remove / drag-reorder panels, saved per
+   browser. Operates purely on layout (moving or hiding DOM nodes) so it never
+   interferes with the app's data rendering or event listeners.
+   ==========================================================================*/
+const DASH_KEY = "scoutedge.dashboard.v1";
+let dashCustomizing = false;
+let dashDragEl = null;
+const DASH_DEFAULT_ORDER = {};
+
+function dashContainers() { return document.querySelectorAll("[data-container]"); }
+function dashWidgets() { return document.querySelectorAll("[data-widget]"); }
+function dashScopeOf(w) { return w.parentElement.closest("[data-container]") || w.parentElement; }
+
+function dashLoadConfig() {
+  try { return JSON.parse(localStorage.getItem(DASH_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function dashSaveConfig() {
+  const cfg = { hidden: [], order: {} };
+  dashWidgets().forEach(w => { if (w.dataset.hidden === "1") cfg.hidden.push(w.dataset.widget); });
+  dashContainers().forEach(c => {
+    cfg.order[c.dataset.container] =
+      Array.from(c.querySelectorAll(":scope > [data-widget]")).map(w => w.dataset.widget);
+  });
+  try { localStorage.setItem(DASH_KEY, JSON.stringify(cfg)); } catch (e) {}
+}
+function dashCaptureDefault() {
+  dashContainers().forEach(c => {
+    DASH_DEFAULT_ORDER[c.dataset.container] =
+      Array.from(c.querySelectorAll(":scope > [data-widget]")).map(w => w.dataset.widget);
+  });
+}
+function dashOrderContainer(cname, order) {
+  const container = document.querySelector('[data-container="' + cname + '"]');
+  if (!container || !order) return;
+  order.forEach(wid => {
+    const w = container.querySelector(':scope > [data-widget="' + CSS.escape(wid) + '"]');
+    if (w) container.appendChild(w);   // move each into saved order (moves preserve listeners)
+  });
+}
+function dashSetHidden(w, hide, save) {
+  if (hide) { w.dataset.hidden = "1"; w.style.display = "none"; }
+  else { delete w.dataset.hidden; w.style.display = ""; }
+  if (save) { dashSaveConfig(); dashRefreshAddMenu(); }
+}
+function dashApplyConfig() {
+  const cfg = dashLoadConfig();
+  if (cfg.order) Object.keys(cfg.order).forEach(c => dashOrderContainer(c, cfg.order[c]));
+  const hidden = new Set(cfg.hidden || []);
+  dashWidgets().forEach(w => dashSetHidden(w, hidden.has(w.dataset.widget), false));
+}
+
+function dashAddTools(w) {
+  if (w.querySelector(":scope > .wgt-tools")) return;
+  const tools = document.createElement("div");
+  tools.className = "wgt-tools";
+  const drag = document.createElement("button");
+  drag.type = "button"; drag.className = "wgt-drag"; drag.title = "Drag to reorder";
+  drag.innerHTML = "&#8942;&#8942;";
+  const rm = document.createElement("button");
+  rm.type = "button"; rm.className = "wgt-remove"; rm.title = "Remove panel";
+  rm.innerHTML = "&times;";
+  tools.appendChild(drag); tools.appendChild(rm);
+  w.appendChild(tools);
+  rm.addEventListener("click", e => { e.stopPropagation(); dashSetHidden(w, true, true); });
+  drag.addEventListener("mousedown", () => w.setAttribute("draggable", "true"));
+  drag.addEventListener("mouseup", () => w.setAttribute("draggable", "false"));
+}
+function dashRemoveTools(w) {
+  const t = w.querySelector(":scope > .wgt-tools");
+  if (t) t.remove();
+  w.setAttribute("draggable", "false");
+}
+
+function dashInitDnD() {
+  document.addEventListener("dragstart", e => {
+    if (!dashCustomizing) return;
+    const w = e.target.closest("[data-widget]");
+    if (!w || w.getAttribute("draggable") !== "true") return;
+    dashDragEl = w; w.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", w.dataset.widget); } catch (_) {}
+  });
+  document.addEventListener("dragover", e => {
+    if (!dashCustomizing || !dashDragEl) return;
+    const scope = dashScopeOf(dashDragEl);
+    const target = e.target.closest("[data-widget]");
+    if (!target || target === dashDragEl || dashScopeOf(target) !== scope) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".drag-over").forEach(x => x.classList.remove("drag-over"));
+    target.classList.add("drag-over");
+    const rect = target.getBoundingClientRect();
+    const horizontal = scope.dataset.container === "summary";
+    const before = horizontal ? (e.clientX < rect.left + rect.width / 2)
+                              : (e.clientY < rect.top + rect.height / 2);
+    scope.insertBefore(dashDragEl, before ? target : target.nextSibling);
+  });
+  document.addEventListener("drop", e => {
+    if (!dashCustomizing || !dashDragEl) return;
+    e.preventDefault();
+    document.querySelectorAll(".drag-over").forEach(x => x.classList.remove("drag-over"));
+    dashSaveConfig();
+  });
+  document.addEventListener("dragend", () => {
+    if (dashDragEl) { dashDragEl.classList.remove("dragging"); dashDragEl.setAttribute("draggable", "false"); }
+    document.querySelectorAll(".drag-over").forEach(x => x.classList.remove("drag-over"));
+    dashDragEl = null;
+  });
+}
+
+function dashRefreshAddMenu() {
+  const menu = document.getElementById("dash-add-menu");
+  menu.innerHTML = "";
+  const hiddenW = Array.from(dashWidgets()).filter(w => w.dataset.hidden === "1");
+  if (!hiddenW.length) {
+    const em = document.createElement("div");
+    em.className = "add-empty"; em.textContent = "All panels are visible.";
+    menu.appendChild(em); return;
+  }
+  hiddenW.forEach(w => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "add-item";
+    b.innerHTML = '<span class="plus">+</span> ' +
+      (w.dataset.widgetName || w.dataset.widget);
+    b.addEventListener("click", () => { dashSetHidden(w, false, true); menu.classList.remove("open"); });
+    menu.appendChild(b);
+  });
+}
+
+function dashSetCustomizing(on) {
+  dashCustomizing = on;
+  document.body.classList.toggle("customizing", on);
+  document.getElementById("dash-add-wrap").style.display = on ? "" : "none";
+  document.getElementById("dash-reset-btn").style.display = on ? "" : "none";
+  document.getElementById("dash-customize-btn").innerHTML = on ? "&#10003; Done" : "&#9881; Customize";
+  document.getElementById("dash-hint").innerHTML = on
+    ? "Drag the &#8942;&#8942; handle to reorder, &times; to remove. Re-add panels from &ldquo;Add widget.&rdquo;"
+    : "Customize your view &mdash; add, remove, or drag panels. Your layout is saved automatically.";
+  dashWidgets().forEach(w => { if (on) dashAddTools(w); else dashRemoveTools(w); });
+  if (!on) document.getElementById("dash-add-menu").classList.remove("open");
+}
+
+function initDashboard() {
+  dashCaptureDefault();
+  dashApplyConfig();
+  dashInitDnD();
+  document.getElementById("dash-customize-btn")
+    .addEventListener("click", () => dashSetCustomizing(!dashCustomizing));
+  document.getElementById("dash-reset-btn").addEventListener("click", () => {
+    Object.keys(DASH_DEFAULT_ORDER).forEach(c => dashOrderContainer(c, DASH_DEFAULT_ORDER[c]));
+    dashWidgets().forEach(w => dashSetHidden(w, false, false));
+    dashSaveConfig(); dashRefreshAddMenu();
+  });
+  const addBtn = document.getElementById("dash-add-btn");
+  const addMenu = document.getElementById("dash-add-menu");
+  addBtn.addEventListener("click", e => { e.stopPropagation(); dashRefreshAddMenu(); addMenu.classList.toggle("open"); });
+  document.addEventListener("click", e => { if (!e.target.closest("#dash-add-wrap")) addMenu.classList.remove("open"); });
+  dashRefreshAddMenu();
+}
+
 init();
+initDashboard();
 </script>
 </body>
 </html>
