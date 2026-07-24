@@ -44,7 +44,38 @@ users = Table(
     Column("username", Text, unique=True, nullable=False),
     Column("password_hash", Text, nullable=False),
     Column("created_at", Text, nullable=False),
+    Column("is_pro", Integer, default=0),      # 1 = Pro subscriber
+    Column("role", Text, default="user"),      # "user" | "admin"
 )
+
+# Scout Ledger: a user's dated prediction snapshots + their eventual outcome.
+# This is the proprietary "our calls vs. reality" dataset that compounds.
+ledger_entries = Table(
+    "ledger_entries", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Integer, nullable=False),
+    Column("player_id", Integer, nullable=False),
+    Column("player_name", Text, nullable=False),
+    Column("snapshot_date", Text, nullable=False),
+    Column("undervalued_score", Float),
+    Column("market_value", Integer),
+    Column("outcome", Text, nullable=False, default="pending"),  # pending|signed|rose|available|missed
+    Column("outcome_at", Text),
+)
+Index("ix_ledger_user", ledger_entries.c.user_id)
+
+# Saved views: a named filter preset, optionally shareable via a public token.
+watchlists = Table(
+    "watchlists", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", Integer, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("filters", Text, nullable=False, default="{}"),
+    Column("share_token", Text),
+    Column("created_at", Text, nullable=False),
+)
+Index("ix_watchlists_user", watchlists.c.user_id)
+Index("ix_watchlists_share", watchlists.c.share_token)
 
 shortlists = Table(
     "shortlists", metadata,

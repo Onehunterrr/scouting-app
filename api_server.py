@@ -34,7 +34,8 @@ from sqlalchemy import create_engine, select, insert, delete, update, func
 
 import scoring
 from db_tables import metadata, players as players_t, users as users_t, \
-    shortlists as shortlists_t, notes as notes_t, row_to_player
+    shortlists as shortlists_t, notes as notes_t, row_to_player, \
+    ledger_entries as ledger_t, watchlists as watchlists_t
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SQLITE_DIR = "/tmp/scouting_api"
@@ -107,6 +108,20 @@ def _seed_players_if_empty(eng):
         print(f"[init_db] player seeding skipped: {exc}")
 
 
+def _ensure_user_columns(eng):
+    """Add columns introduced after the users table already existed. create_all
+    only creates missing tables, not missing columns, so ALTER them in. Both
+    SQLite and Postgres accept 'ADD COLUMN'; we swallow the 'already exists'
+    error so this is safe to run on every startup."""
+    from sqlalchemy import text
+    for coldef in ("is_pro INTEGER DEFAULT 0", "role TEXT DEFAULT 'user'"):
+        try:
+            with eng.begin() as conn:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {coldef}"))
+        except Exception:
+            pass  # column already present
+
+
 def init_db(url=None):
     """(Re-)initialise the engine + player cache. Tests call this with their
     own URL; normal startup uses env DATABASE_URL or the sqlite default."""
@@ -115,6 +130,7 @@ def init_db(url=None):
     _seed_sqlite_if_needed(url)
     engine = create_engine(url, future=True)
     metadata.create_all(engine, checkfirst=True)
+    _ensure_user_columns(engine)
     _seed_players_if_empty(engine)
     _raw_players = None
     _scored_cache = {}
@@ -220,6 +236,42 @@ class NoteBody(BaseModel):
     text: str = Field(max_length=5000)
 
 
+class LedgerBody(BaseModel):
+    playerIds: list[int] = Field(max_length=100)
+
+
+class OutcomeBody(BaseModel):
+    outcome: str = Field(pattern="^(pending|signed|rose|available|missed)$")
+
+
+class WatchlistBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    filters: dict = Field(default_factory=dict)
+    share: bool = False
+
+
+class AdminPlayerBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    country: str = Field(min_length=1, max_length=60)
+    position: str = Field(pattern="^(GK|DF|MF|FW)$")
+    tier: int = Field(ge=2, le=4)
+    club: str = Field(default="", max_length=120)
+    age: int = Field(ge=15, le=40)
+    minutes: int = Field(default=900, ge=0, le=10000)
+    goals: int = Field(default=0, ge=0, le=200)
+    assists: int = Field(default=0, ge=0, le=200)
+    progPasses: int = Field(default=0, ge=0, le=5000)
+    progCarries: int = Field(default=0, ge=0, le=5000)
+    tklInt: int = Field(default=0, ge=0, le=5000)
+    marketValue: int = Field(default=0, ge=0, le=500000000)
+    hasAgent: str = Field(default="Unknown", pattern="^(Yes|No|Unknown)$")
+    contractExpires: int = Field(default=2027, ge=2024, le=2040)
+    clubContactEmail: str = Field(default="", max_length=160)
+
+
+ADMIN_USERNAMES = {u.strip().lower() for u in os.environ.get("ADMIN_USERNAMES", "").split(",") if u.strip()}
+
+
 def make_token(user_id, username):
     payload = {
         "sub": str(user_id),
@@ -238,7 +290,26 @@ def current_user(authorization: str = Header(default=None)):
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return {"id": int(payload["sub"]), "username": payload["username"]}
+    uid, uname = int(payload["sub"]), payload["username"]
+    is_pro, role = 0, "user"
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                select(users_t.c.is_pro, users_t.c.role).where(users_t.c.id == uid)
+            ).first()
+            if row:
+                is_pro = row[0] or 0
+                role = row[1] or "user"
+    except Exception:
+        pass
+    is_admin = role == "admin" or uname.lower() in ADMIN_USERNAMES
+    return {"id": uid, "username": uname, "is_pro": bool(is_pro), "is_admin": is_admin}
+
+
+def require_admin(user=Depends(current_user)):
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +564,250 @@ def put_note(player_id: int, body: NoteBody, user=Depends(current_user)):
 
 
 # ---------------------------------------------------------------------------
+# Account + billing (Pro tier)
+# ---------------------------------------------------------------------------
+import json as _json
+import secrets
+
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
+STRIPE_ENABLED = bool(STRIPE_SECRET_KEY and STRIPE_PRICE_ID)
+
+
+def require_pro(user=Depends(current_user)):
+    if not user["is_pro"]:
+        raise HTTPException(status_code=402, detail="This is a Pro feature — upgrade to unlock.")
+    return user
+
+
+def _set_pro(uid, val):
+    with engine.begin() as conn:
+        conn.execute(update(users_t).where(users_t.c.id == uid).values(is_pro=1 if val else 0))
+
+
+@app.get("/api/me")
+def get_me(user=Depends(current_user)):
+    return {"username": user["username"], "isPro": user["is_pro"], "isAdmin": user["is_admin"],
+            "billingEnabled": STRIPE_ENABLED}
+
+
+@app.post("/api/billing/checkout")
+def billing_checkout(user=Depends(current_user)):
+    if not STRIPE_ENABLED:
+        _set_pro(user["id"], True)   # demo mode: no Stripe keys -> unlock immediately
+        return {"mode": "demo", "isPro": True}
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+        app_url = os.environ.get("APP_URL", "")
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            client_reference_id=str(user["id"]),
+            success_url=app_url + "/app?upgraded=1",
+            cancel_url=app_url + "/app",
+        )
+        return {"mode": "stripe", "url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e}")
+
+
+@app.post("/api/billing/cancel")
+def billing_cancel(user=Depends(current_user)):
+    _set_pro(user["id"], False)
+    return {"isPro": False}
+
+
+# ---------------------------------------------------------------------------
+# Scout Ledger -- dated prediction snapshots + outcomes (the compounding moat)
+# ---------------------------------------------------------------------------
+@app.get("/api/me/ledger")
+def get_ledger(user=Depends(current_user)):
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(ledger_t).where(ledger_t.c.user_id == user["id"]).order_by(ledger_t.c.id.desc())
+        ).mappings().all()
+    return {"entries": [dict(r) for r in rows]}
+
+
+@app.post("/api/me/ledger")
+def add_ledger(body: LedgerBody, user=Depends(require_pro)):
+    scored = {p["id"]: p for p in get_scored()}
+    today = datetime.date.today().isoformat()
+    added = []
+    with engine.begin() as conn:
+        pending = {r[0] for r in conn.execute(
+            select(ledger_t.c.player_id).where(
+                (ledger_t.c.user_id == user["id"]) & (ledger_t.c.outcome == "pending"))
+        ).all()}
+        for pid in body.playerIds:
+            p = scored.get(pid)
+            if not p or pid in pending:
+                continue
+            conn.execute(insert(ledger_t).values(
+                user_id=user["id"], player_id=pid, player_name=p["name"], snapshot_date=today,
+                undervalued_score=p["undervaluedScore"], market_value=p.get("displayMarketValue") or 0,
+                outcome="pending"))
+            added.append(pid)
+    return {"added": added}
+
+
+@app.put("/api/me/ledger/{entry_id}/outcome")
+def set_ledger_outcome(entry_id: int, body: OutcomeBody, user=Depends(current_user)):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with engine.begin() as conn:
+        r = conn.execute(update(ledger_t).where(
+            (ledger_t.c.id == entry_id) & (ledger_t.c.user_id == user["id"])
+        ).values(outcome=body.outcome, outcome_at=now))
+        if r.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Ledger entry not found")
+    return {"id": entry_id, "outcome": body.outcome}
+
+
+@app.delete("/api/me/ledger/{entry_id}")
+def delete_ledger(entry_id: int, user=Depends(current_user)):
+    with engine.begin() as conn:
+        conn.execute(delete(ledger_t).where(
+            (ledger_t.c.id == entry_id) & (ledger_t.c.user_id == user["id"])))
+    return {"deleted": entry_id}
+
+
+@app.get("/api/me/ledger/stats")
+def ledger_stats(user=Depends(current_user)):
+    with engine.connect() as conn:
+        outcomes = [r[0] for r in conn.execute(
+            select(ledger_t.c.outcome).where(ledger_t.c.user_id == user["id"])).all()]
+    resolved = [o for o in outcomes if o != "pending"]
+    hits = sum(1 for o in resolved if o in ("signed", "rose"))
+    return {"total": len(outcomes), "pending": len(outcomes) - len(resolved),
+            "resolved": len(resolved), "hits": hits,
+            "hitRate": round(100 * hits / len(resolved)) if resolved else 0}
+
+
+# ---------------------------------------------------------------------------
+# Saved views (watchlists) + public shareable links
+# ---------------------------------------------------------------------------
+def _safe_json(s):
+    try:
+        return _json.loads(s) if s else {}
+    except Exception:
+        return {}
+
+
+def _apply_filters(scored, f):
+    pos = f.get("position") or ""
+    tier = f.get("tier")
+    country = f.get("country") or ""
+    max_age = f.get("maxAge")
+    agents = f.get("hasAgent")
+    if isinstance(agents, str):
+        agents = [a for a in agents.split(",") if a]
+    agent_set = set(agents) if agents else None
+    q = (f.get("q") or "").strip().lower()
+    out = []
+    for p in scored:
+        if pos and p["position"] != pos:
+            continue
+        if tier and p["tier"] != int(tier):
+            continue
+        if country and p["country"] != country:
+            continue
+        if max_age and p["age"] > int(max_age):
+            continue
+        if agent_set is not None and p["hasAgent"] not in agent_set:
+            continue
+        if q and not (q in p["name"].lower() or q in p["club"].lower() or q in p["country"].lower()):
+            continue
+        out.append(p)
+    out.sort(key=lambda p: p["undervaluedScore"], reverse=True)
+    return out
+
+
+@app.get("/api/me/watchlists")
+def get_watchlists(user=Depends(current_user)):
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(watchlists_t).where(watchlists_t.c.user_id == user["id"]).order_by(watchlists_t.c.id.desc())
+        ).mappings().all()
+    return {"watchlists": [{"id": r["id"], "name": r["name"], "filters": _safe_json(r["filters"]),
+                            "shareToken": r["share_token"], "createdAt": r["created_at"]} for r in rows]}
+
+
+@app.post("/api/me/watchlists")
+def add_watchlist(body: WatchlistBody, user=Depends(require_pro)):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    token = secrets.token_urlsafe(9) if body.share else None
+    with engine.begin() as conn:
+        count = conn.execute(select(func.count()).select_from(watchlists_t).where(
+            watchlists_t.c.user_id == user["id"])).scalar_one()
+        if count >= 50:
+            raise HTTPException(status_code=400, detail="Saved-view limit reached (50)")
+        res = conn.execute(insert(watchlists_t).values(
+            user_id=user["id"], name=body.name.strip(),
+            filters=_json.dumps(body.filters)[:4000], share_token=token, created_at=now))
+        wid = res.inserted_primary_key[0]
+    return {"id": wid, "name": body.name.strip(), "shareToken": token}
+
+
+@app.delete("/api/me/watchlists/{wid}")
+def delete_watchlist(wid: int, user=Depends(current_user)):
+    with engine.begin() as conn:
+        conn.execute(delete(watchlists_t).where(
+            (watchlists_t.c.id == wid) & (watchlists_t.c.user_id == user["id"])))
+    return {"deleted": wid}
+
+
+@app.get("/api/shared/{token}")
+def get_shared_view(token: str):
+    """Public read-only shared view. Returns the saved filter + a capped preview
+    of matching players with contact PII stripped, so a public link never leaks
+    club emails or routing details."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(watchlists_t).where(watchlists_t.c.share_token == token)
+        ).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Shared view not found")
+    filt = _safe_json(row["filters"])
+    players = _apply_filters(get_scored(), filt)[:25]
+    preview = [{"id": p["id"], "name": p["name"], "country": p["country"], "position": p["position"],
+                "tier": p["tier"], "age": p["age"], "undervaluedScore": p["undervaluedScore"],
+                "flag": p["flag"], "hasAgent": p["hasAgent"]} for p in players]
+    return {"name": row["name"], "filters": filt, "players": preview, "count": len(preview)}
+
+
+# ---------------------------------------------------------------------------
+# Admin -- fast data entry for real players (the moat-collection backbone)
+# ---------------------------------------------------------------------------
+@app.post("/api/admin/players")
+def admin_add_player(body: AdminPlayerBody, admin=Depends(require_admin)):
+    from db_tables import JSON_TO_SQL
+    global _raw_players, _scored_cache
+    today = datetime.date.today().isoformat()
+    p = {
+        "name": body.name.strip(), "country": body.country.strip(),
+        "league": f"{body.country.strip()} Tier {body.tier}", "tier": body.tier,
+        "club": body.club.strip() or "Unknown", "position": body.position, "age": body.age,
+        "minutes": body.minutes, "goals": body.goals, "assists": body.assists,
+        "progPasses": body.progPasses, "progCarries": body.progCarries, "tklInt": body.tklInt,
+        "saves": 0, "goalsConceded": 0, "passCompletionPct": 0.0, "sweeperActions": 0.0,
+        "cleanSheets": 0, "marketValue": body.marketValue, "hasAgent": body.hasAgent,
+        "contractExpires": body.contractExpires, "clubContactEmail": body.clubContactEmail.strip(),
+        "contactRoute": "", "federationRegistry": "", "dateAdded": today, "lastUpdated": today,
+    }
+    row = {JSON_TO_SQL[k]: v for k, v in p.items() if k in JSON_TO_SQL}
+    try:
+        with engine.begin() as conn:
+            res = conn.execute(insert(players_t).values(**row))
+            pid = res.inserted_primary_key[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not add player (duplicate name + country?): {e}")
+    _raw_players = None   # invalidate caches so the new player appears immediately
+    _scored_cache = {}
+    return {"id": pid, "name": body.name.strip()}
+
+
+# ---------------------------------------------------------------------------
 # Static frontend -- one process serves the marketing landing page ("/") and
 # the scouting app ("/app"); the REST API lives under "/api".
 # ---------------------------------------------------------------------------
@@ -514,6 +829,45 @@ def serve_app():
     if os.path.exists(HTML_FILE):
         return FileResponse(HTML_FILE, media_type="text/html")
     raise HTTPException(status_code=404, detail="Scouting_App_Prototype.html not found next to api_server.py")
+
+
+from fastapi.responses import HTMLResponse
+
+SHARED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>ScoutEdge — Shared view</title>
+<style>
+ body{margin:0;background:#1b1712;color:#f0e6d8;font-family:system-ui,sans-serif;padding:28px}
+ .wrap{max-width:900px;margin:0 auto}
+ h1{font-size:22px;margin:0 0 2px}.sub{color:#a89a86;font-size:13px;margin-bottom:20px}
+ .brand{color:#cf7d5a;font-weight:800}
+ table{width:100%;border-collapse:collapse;font-size:13px}
+ th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #3d3527}
+ th{color:#a89a86;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+ .flag{font-size:11px;font-weight:600;color:#6fa87a}
+ .uv{font-weight:700;color:#cf7d5a}
+ a.cta{display:inline-block;margin-top:22px;background:#c1653f;color:#1a130e;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700}
+ .empty{color:#a89a86;padding:30px 0}
+</style></head><body><div class="wrap">
+ <h1><span class="brand">ScoutEdge</span> · <span id="vname">Shared view</span></h1>
+ <div class="sub">A public scouting board · <span id="vcount">…</span> players</div>
+ <div id="content" class="empty">Loading…</div>
+ <a class="cta" href="/app">Open ScoutEdge →</a>
+</div><script>
+ var token = location.pathname.split("/").pop();
+ fetch("/api/shared/" + encodeURIComponent(token)).then(function(r){ if(!r.ok) throw 0; return r.json(); })
+ .then(function(d){
+   document.getElementById("vname").textContent = d.name || "Shared view";
+   document.getElementById("vcount").textContent = d.count;
+   if(!d.players || !d.players.length){ document.getElementById("content").textContent = "No players match this view."; return; }
+   var rows = d.players.map(function(p){ return "<tr><td>"+p.name+"</td><td>"+p.position+"</td><td>"+p.country+"</td><td>"+p.age+"</td><td class='uv'>"+p.undervaluedScore.toFixed(1)+"</td><td class='flag'>"+(p.flag||"")+"</td></tr>"; }).join("");
+   document.getElementById("content").innerHTML = "<table><thead><tr><th>Player</th><th>Pos</th><th>Country</th><th>Age</th><th>Undervalued</th><th>Flag</th></tr></thead><tbody>"+rows+"</tbody></table>";
+ }).catch(function(){ document.getElementById("content").textContent = "This shared view was not found."; });
+</script></body></html>"""
+
+
+@app.get("/shared/{token}")
+def serve_shared_page(token: str):
+    return HTMLResponse(SHARED_PAGE)
 
 
 if __name__ == "__main__":

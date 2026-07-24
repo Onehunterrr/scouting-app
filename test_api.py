@@ -27,6 +27,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 shutil.copy(os.path.join(BASE_DIR, "scouting.db"), TEST_DB)
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 os.environ["RATE_LIMIT_DISABLED"] = "1"
+os.environ["ADMIN_USERNAMES"] = "admin_user"
 
 import api_server  # noqa: E402  (env must be set before import)
 api_server.init_db(f"sqlite:///{TEST_DB}")
@@ -319,3 +320,71 @@ def test_app_served_at_app_path():
     r = client.get("/app")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
     assert "dash-customize-btn" in r.text  # the customizable dashboard is present
+
+
+# ---------------------------------------------------------------------------
+# Growth features: account/billing, ledger, watchlists+share, admin
+# ---------------------------------------------------------------------------
+def _pro_headers(username):
+    h = _auth_headers(username)
+    client.post("/api/billing/checkout", headers=h)  # demo mode -> Pro
+    return h
+
+
+def test_me_and_demo_billing():
+    h = _auth_headers("me_user")
+    me = client.get("/api/me", headers=h).json()
+    assert me["isPro"] is False and me["isAdmin"] is False and me["billingEnabled"] is False
+    up = client.post("/api/billing/checkout", headers=h).json()
+    assert up["isPro"] is True
+    assert client.get("/api/me", headers=h).json()["isPro"] is True
+    client.post("/api/billing/cancel", headers=h)
+    assert client.get("/api/me", headers=h).json()["isPro"] is False
+
+
+def test_ledger_is_pro_gated_and_flows():
+    h = _auth_headers("ledger_free")
+    assert client.post("/api/me/ledger", json={"playerIds": [1, 2]}, headers=h).status_code == 402
+    hp = _pro_headers("ledger_pro")
+    add = client.post("/api/me/ledger", json={"playerIds": [1, 2, 3]}, headers=hp).json()
+    assert set(add["added"]) == {1, 2, 3}
+    # duplicate pending picks are skipped
+    assert client.post("/api/me/ledger", json={"playerIds": [1]}, headers=hp).json()["added"] == []
+    entries = client.get("/api/me/ledger", headers=hp).json()["entries"]
+    assert len(entries) == 3
+    eid = entries[0]["id"]
+    assert client.put(f"/api/me/ledger/{eid}/outcome", json={"outcome": "signed"}, headers=hp).status_code == 200
+    assert client.put(f"/api/me/ledger/{eid}/outcome", json={"outcome": "bogus"}, headers=hp).status_code == 422
+    stats = client.get("/api/me/ledger/stats", headers=hp).json()
+    assert stats["total"] == 3 and stats["hits"] == 1 and stats["hitRate"] == 100
+
+
+def test_watchlists_and_public_share_strips_pii():
+    hp = _pro_headers("views_pro")
+    assert client.post("/api/me/watchlists", json={"name": "x", "filters": {}}, headers=_auth_headers("views_free")).status_code == 402
+    wl = client.post("/api/me/watchlists",
+                     json={"name": "GKs", "filters": {"position": "GK", "maxAge": 21}, "share": True}, headers=hp).json()
+    token = wl["shareToken"]
+    assert token
+    lst = client.get("/api/me/watchlists", headers=hp).json()["watchlists"]
+    assert any(w["name"] == "GKs" for w in lst)
+    shared = client.get(f"/api/shared/{token}").json()  # public, no auth
+    assert shared["name"] == "GKs" and shared["count"] > 0
+    assert "clubContactEmail" not in shared["players"][0]  # PII stripped from public share
+    assert client.get("/api/shared/nonexistenttoken").status_code == 404
+
+
+def test_admin_add_player_is_gated():
+    # non-admin blocked
+    assert client.post("/api/admin/players", json={
+        "name": "Nope", "country": "Nowhere", "position": "MF", "tier": 3, "age": 20},
+        headers=_auth_headers("not_admin")).status_code == 403
+    # admin (username in ADMIN_USERNAMES) can add
+    r = client.post("/api/admin/players", json={
+        "name": "Pytest Player", "country": "Latvia", "position": "FW", "tier": 3,
+        "club": "PT FC", "age": 18, "minutes": 1500, "goals": 10, "marketValue": 50000,
+        "hasAgent": "No"}, headers=_auth_headers("admin_user"))
+    assert r.status_code == 200
+    pid = r.json()["id"]
+    got = client.get(f"/api/players/{pid}", headers=AUTH).json()
+    assert got["name"] == "Pytest Player" and got["hasAgent"] == "No"

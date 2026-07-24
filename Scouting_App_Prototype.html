@@ -217,6 +217,45 @@
   .tour-title { margin: 8px 0 8px; font-size: 18px; color: var(--text); }
   .tour-text { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
   .tour-nav { display: flex; gap: 8px; }
+
+  /* ---- Feature bar: wedge presets + Pro / Ledger / Saved Views / Admin ---- */
+  .feature-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 18px 0; flex-wrap: wrap; }
+  .presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .presets .plabel { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-right: 2px; }
+  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .chip:hover { border-color: var(--navy-light); }
+  .chip.hero { border-color: var(--navy); color: var(--navy-light); background: rgba(193,101,63,0.10); }
+  .chip.hero:hover { background: rgba(193,101,63,0.18); }
+  .feature-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pro-badge { font-size: 11px; font-weight: 800; letter-spacing: .08em; padding: 4px 9px; border-radius: 6px; background: linear-gradient(150deg, var(--amber), #caa25a); color: #201a10; }
+  .feat-modal-overlay { position: fixed; inset: 0; z-index: 240; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(10,8,6,0.72); }
+  .feat-modal-overlay.open { display: flex; }
+  .feat-modal { width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.55); }
+  .feat-modal h3 { margin: 0 0 4px; font-size: 18px; color: var(--text); }
+  .feat-modal .sub { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; }
+  .feat-modal .mrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .feat-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+  .ledger-list, .views-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .ledger-row, .view-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-alt); font-size: 13px; }
+  .ledger-row .lp { flex: 1; font-weight: 600; color: var(--text); }
+  .ledger-row .luv { font-family: monospace; color: var(--accent); font-weight: 700; }
+  .ledger-row select, .admin-form select { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; font-size: 12px; }
+  .view-row .vn { flex: 1; font-weight: 600; color: var(--text); }
+  .view-row .vlink { color: var(--navy-light); font-size: 11.5px; cursor: pointer; }
+  .icon-btn { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 15px; }
+  .stat-row { display: flex; gap: 18px; margin: 6px 0 4px; }
+  .stat-row .s b { display: block; font-size: 22px; color: var(--navy-light); }
+  .stat-row .s span { font-size: 11px; color: var(--muted); }
+  .pricing-feats { list-style: none; padding: 0; margin: 6px 0 16px; }
+  .pricing-feats li { padding: 6px 0; font-size: 13.5px; color: var(--text); }
+  .pricing-feats li b { color: var(--accent); margin-right: 8px; }
+  .admin-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 10px; }
+  .admin-form .fld { display: flex; flex-direction: column; gap: 3px; }
+  .admin-form .fld.full { grid-column: 1 / -1; }
+  .admin-form label { font-size: 11px; color: var(--muted); }
+  .admin-form input, .admin-form select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-alt); color: var(--text); font-size: 13px; }
+  .feat-status { font-size: 12px; margin-top: 10px; min-height: 15px; color: var(--muted); }
+  .feat-status.err { color: var(--danger); } .feat-status.ok { color: var(--accent); }
   .dash-add-wrap { position: relative; }
   .dash-add-menu {
     display: none; position: absolute; right: 0; top: 110%; z-index: 40; min-width: 200px;
@@ -770,6 +809,77 @@
   </div>
 </div>
 
+<!-- Scout Ledger -->
+<div class="feat-modal-overlay" id="ledger-modal-overlay">
+  <div class="feat-modal">
+    <div class="mrow"><h3>Scout Ledger</h3><button class="feat-close" data-close="ledger">&times;</button></div>
+    <div class="sub">Lock in today's top undervalued picks, then record what happened. Your calls vs. reality become data nobody else has.</div>
+    <div class="stat-row" id="ledger-stats"></div>
+    <button class="dash-btn dash-btn-primary" id="ledger-snapshot-btn">&#9733; Snapshot today's top 10 picks</button>
+    <div class="ledger-list" id="ledger-list"></div>
+    <div class="feat-status" id="ledger-status"></div>
+  </div>
+</div>
+
+<!-- Saved Views -->
+<div class="feat-modal-overlay" id="views-modal-overlay">
+  <div class="feat-modal">
+    <div class="mrow"><h3>Saved Views</h3><button class="feat-close" data-close="views">&times;</button></div>
+    <div class="sub">Save your current filters as a named view, reload it in one click, or share it as a public link.</div>
+    <div class="mrow" style="gap:8px;">
+      <input type="text" id="view-name" placeholder="Name this view (e.g. Young unrepresented GKs)" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--card-alt);color:var(--text);">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;"><input type="checkbox" id="view-share" style="width:auto;"> shareable</label>
+      <button class="dash-btn dash-btn-primary" id="view-save-btn">Save</button>
+    </div>
+    <div class="views-list" id="views-list"></div>
+    <div class="feat-status" id="views-status"></div>
+  </div>
+</div>
+
+<!-- Pricing / Upgrade -->
+<div class="feat-modal-overlay" id="pricing-modal-overlay">
+  <div class="feat-modal">
+    <div class="mrow"><h3>ScoutEdge Pro</h3><button class="feat-close" data-close="pricing">&times;</button></div>
+    <div class="sub">Unlock the tools that turn browsing into a scouting operation.</div>
+    <ul class="pricing-feats">
+      <li><b>&#10003;</b> Scout Ledger &mdash; track your predictions and prove your hit rate</li>
+      <li><b>&#10003;</b> Saved &amp; shareable views &mdash; your segments, one click away</li>
+      <li><b>&#10003;</b> CSV export of any view or shortlist</li>
+      <li><b>&#10003;</b> Priority access to new leagues as real data lands</li>
+    </ul>
+    <button class="dash-btn dash-btn-primary" id="pricing-go-btn" style="width:100%;padding:12px;">Go Pro</button>
+    <div class="feat-status" id="pricing-status"></div>
+  </div>
+</div>
+
+<!-- Admin: add a real player -->
+<div class="feat-modal-overlay" id="admin-modal-overlay">
+  <div class="feat-modal">
+    <div class="mrow"><h3>Add a real player</h3><button class="feat-close" data-close="admin">&times;</button></div>
+    <div class="sub">The moat-collection backbone &mdash; capture a real long-tail player, their representation status, and a contact route in seconds.</div>
+    <div class="admin-form" id="admin-form">
+      <div class="fld full"><label>Name</label><input id="ad-name" type="text" placeholder="Full name"></div>
+      <div class="fld"><label>Country</label><input id="ad-country" type="text" placeholder="Country"></div>
+      <div class="fld"><label>Club</label><input id="ad-club" type="text" placeholder="Club"></div>
+      <div class="fld"><label>Position</label><select id="ad-position"><option>GK</option><option>DF</option><option selected>MF</option><option>FW</option></select></div>
+      <div class="fld"><label>Tier</label><select id="ad-tier"><option>2</option><option selected>3</option><option>4</option></select></div>
+      <div class="fld"><label>Age</label><input id="ad-age" type="number" value="19" min="15" max="40"></div>
+      <div class="fld"><label>Minutes</label><input id="ad-minutes" type="number" value="1800" min="0"></div>
+      <div class="fld"><label>Goals</label><input id="ad-goals" type="number" value="0" min="0"></div>
+      <div class="fld"><label>Assists</label><input id="ad-assists" type="number" value="0" min="0"></div>
+      <div class="fld"><label>Prog. passes</label><input id="ad-progPasses" type="number" value="0" min="0"></div>
+      <div class="fld"><label>Prog. carries</label><input id="ad-progCarries" type="number" value="0" min="0"></div>
+      <div class="fld"><label>Tackles+Int.</label><input id="ad-tklInt" type="number" value="0" min="0"></div>
+      <div class="fld"><label>Market value (&euro;)</label><input id="ad-marketValue" type="number" value="0" min="0"></div>
+      <div class="fld"><label>Representation</label><select id="ad-hasAgent"><option selected>No</option><option>Unknown</option><option>Yes</option></select></div>
+      <div class="fld"><label>Contract expires</label><input id="ad-contractExpires" type="number" value="2027" min="2024" max="2040"></div>
+      <div class="fld full"><label>Club contact email</label><input id="ad-clubContactEmail" type="text" placeholder="scouting@club.com"></div>
+    </div>
+    <button class="dash-btn dash-btn-primary" id="admin-save-btn" style="width:100%;margin-top:12px;padding:11px;">Add player</button>
+    <div class="feat-status" id="admin-status"></div>
+  </div>
+</div>
+
 <header>
   <div class="header-inner">
     <div class="header-titles">
@@ -824,6 +934,23 @@
     </div>
     <button class="dash-btn" id="dash-reset-btn" style="display:none;">Reset layout</button>
     <button class="dash-btn dash-btn-primary" id="dash-customize-btn">&#9881; Customize</button>
+  </div>
+</div>
+
+<div class="feature-bar" id="feature-bar">
+  <div class="presets">
+    <span class="plabel">Quick views</span>
+    <button class="chip hero" id="preset-gems">&#9733; Unrepresented Gems</button>
+    <button class="chip" id="preset-u20">Under-20</button>
+    <button class="chip" id="preset-gk">Goalkeepers</button>
+    <button class="chip" id="preset-reset">Reset</button>
+  </div>
+  <div class="feature-actions" id="feature-actions">
+    <button class="dash-btn" id="feat-ledger-btn">&#9733; Scout Ledger</button>
+    <button class="dash-btn" id="feat-views-btn">&#9635; Saved Views</button>
+    <button class="dash-btn" id="feat-admin-btn" style="display:none;">&#9881; Admin</button>
+    <button class="dash-btn dash-btn-primary" id="feat-upgrade-btn">&#9650; Upgrade to Pro</button>
+    <span class="pro-badge" id="feat-pro-badge" style="display:none;">PRO</span>
   </div>
 </div>
 
@@ -7703,6 +7830,7 @@ function startApp() {
   renderTable();   // offline-first render; API mode swaps in if the server answers
   detectApi().then(meta => { if (meta) initApiMode(meta); });
   maybeStartTour();
+  if (typeof featRefreshMe === "function") featRefreshMe();
 }
 
 function init() {
@@ -8090,10 +8218,206 @@ function initTour() {
   document.getElementById("tour-skip").addEventListener("click", endTour);
 }
 
+/* ============================================================================
+   Growth features: wedge presets, Scout Ledger, Saved Views, Pro tier, Admin.
+   Decoupled + null-guarded so it never interferes with the core app.
+   ==========================================================================*/
+let featMe = { isPro: false, isAdmin: false };
+
+async function featRefreshMe() {
+  if (!authToken) return;
+  try {
+    const r = await apiFetch("/api/me");
+    if (r.ok) { featMe = await r.json(); featApplyRole(); }
+  } catch (e) {}
+}
+function featApplyRole() {
+  const up = document.getElementById("feat-upgrade-btn");
+  const badge = document.getElementById("feat-pro-badge");
+  const admin = document.getElementById("feat-admin-btn");
+  if (up) up.style.display = featMe.isPro ? "none" : "";
+  if (badge) badge.style.display = featMe.isPro ? "" : "none";
+  if (admin) admin.style.display = featMe.isAdmin ? "" : "none";
+}
+
+function featReadFilters() {
+  const v = id => (document.getElementById(id) || {}).value || "";
+  return {
+    q: v("f-search"), position: v("f-position"), country: v("f-country"),
+    tier: v("f-tier"), maxAge: v("f-age"),
+    hasAgent: Array.from(document.querySelectorAll(".agent-cb")).filter(c => c.checked).map(c => c.value).join(","),
+  };
+}
+function featApplyFilters(f) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  set("f-search", f.q || ""); set("f-position", f.position || "");
+  set("f-country", f.country || ""); set("f-tier", f.tier || "");
+  if (f.maxAge) { set("f-age", f.maxAge); const l = document.getElementById("f-age-val"); if (l) l.textContent = f.maxAge; }
+  const agents = (f.hasAgent || "No,Unknown,Yes").split(",");
+  document.querySelectorAll(".agent-cb").forEach(c => c.checked = agents.includes(c.value));
+  if (typeof pageState !== "undefined") pageState.page = 1;
+  if (typeof renderTable === "function") renderTable();
+}
+function featInitPresets() {
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+  on("preset-gems", () => featApplyFilters({ hasAgent: "No", maxAge: 26 }));
+  on("preset-u20", () => featApplyFilters({ maxAge: 20 }));
+  on("preset-gk", () => featApplyFilters({ position: "GK" }));
+  on("preset-reset", () => featApplyFilters({ hasAgent: "No,Unknown,Yes", maxAge: 26 }));
+}
+
+function featOpen(id) { const el = document.getElementById(id); if (el) el.classList.add("open"); }
+function featClose(id) { const el = document.getElementById(id); if (el) el.classList.remove("open"); }
+function featNeedsPro() { featOpen("pricing-modal-overlay"); }
+
+async function featGoPro() {
+  const st = document.getElementById("pricing-status");
+  if (st) { st.textContent = "Starting checkout..."; st.className = "feat-status"; }
+  try {
+    const r = await apiFetch("/api/billing/checkout", { method: "POST" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { if (st) { st.textContent = d.detail || "Checkout failed."; st.className = "feat-status err"; } return; }
+    if (d.mode === "stripe" && d.url) { window.location.href = d.url; return; }
+    featMe.isPro = true; featApplyRole();
+    if (st) { st.textContent = "You're Pro! (demo mode — no charge). Everything's unlocked."; st.className = "feat-status ok"; }
+    setTimeout(() => featClose("pricing-modal-overlay"), 1500);
+  } catch (e) { if (st) { st.textContent = "Could not reach billing."; st.className = "feat-status err"; } }
+}
+
+async function featLedgerRefresh() {
+  const listEl = document.getElementById("ledger-list"), statsEl = document.getElementById("ledger-stats");
+  try {
+    const [le, ls] = await Promise.all([
+      apiFetch("/api/me/ledger").then(r => r.json()),
+      apiFetch("/api/me/ledger/stats").then(r => r.json()),
+    ]);
+    if (statsEl) statsEl.innerHTML =
+      `<div class="s"><b>${ls.total}</b><span>tracked</span></div>` +
+      `<div class="s"><b>${ls.resolved}</b><span>resolved</span></div>` +
+      `<div class="s"><b>${ls.hitRate}%</b><span>hit rate</span></div>`;
+    const outs = ["pending", "signed", "rose", "available", "missed"];
+    if (listEl) {
+      listEl.innerHTML = (le.entries || []).map(e => `
+        <div class="ledger-row">
+          <span class="lp">${e.player_name}</span>
+          <span class="luv">${e.undervalued_score != null ? e.undervalued_score.toFixed(1) : "--"}</span>
+          <select class="ledger-outcome" data-eid="${e.id}">
+            ${outs.map(o => `<option value="${o}"${o === e.outcome ? " selected" : ""}>${o}</option>`).join("")}
+          </select>
+          <button class="icon-btn" data-del="${e.id}" title="Remove">&times;</button>
+        </div>`).join("") || `<div class="sub">No predictions yet — snapshot today's top picks above.</div>`;
+      listEl.querySelectorAll(".ledger-outcome").forEach(sel => sel.addEventListener("change", async ev => {
+        await apiFetch("/api/me/ledger/" + ev.target.dataset.eid + "/outcome", { method: "PUT", body: JSON.stringify({ outcome: ev.target.value }) });
+        featLedgerRefresh();
+      }));
+      listEl.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async ev => {
+        await apiFetch("/api/me/ledger/" + ev.currentTarget.dataset.del, { method: "DELETE" });
+        featLedgerRefresh();
+      }));
+    }
+  } catch (e) {}
+}
+async function featLedgerSnapshot() {
+  const st = document.getElementById("ledger-status");
+  if (!featMe.isPro) { featClose("ledger-modal-overlay"); featNeedsPro(); return; }
+  let ids = [];
+  try {
+    const scored = computeScores(PLAYERS, weights).slice();
+    scored.sort((a, b) => b.undervaluedScore - a.undervaluedScore);
+    ids = scored.slice(0, 10).map(p => {
+      if (p.id != null) return p.id;
+      return (typeof keyToId !== "undefined") ? keyToId[p.name + "|" + p.country] : null;
+    }).filter(x => x != null);
+  } catch (e) {}
+  if (!ids.length) { if (st) { st.textContent = "No players to snapshot."; st.className = "feat-status err"; } return; }
+  const r = await apiFetch("/api/me/ledger", { method: "POST", body: JSON.stringify({ playerIds: ids }) });
+  if (r.status === 402) { featClose("ledger-modal-overlay"); featNeedsPro(); return; }
+  const d = await r.json().catch(() => ({}));
+  if (st) { st.textContent = `Snapshotted ${(d.added || []).length} picks for ${new Date().toISOString().slice(0, 10)}.`; st.className = "feat-status ok"; }
+  featLedgerRefresh();
+}
+
+async function featViewsRefresh() {
+  const listEl = document.getElementById("views-list");
+  try {
+    const d = await apiFetch("/api/me/watchlists").then(r => r.json());
+    if (listEl) {
+      listEl.innerHTML = (d.watchlists || []).map(w => `
+        <div class="view-row">
+          <span class="vn" data-load='${JSON.stringify(w.filters).replace(/'/g, "&#39;")}'>${w.name}</span>
+          ${w.shareToken ? `<span class="vlink" data-share="${w.shareToken}">copy link</span>` : ""}
+          <button class="icon-btn" data-delview="${w.id}" title="Delete">&times;</button>
+        </div>`).join("") || `<div class="sub">No saved views yet.</div>`;
+      listEl.querySelectorAll(".vn").forEach(el => el.addEventListener("click", () => {
+        try { featApplyFilters(JSON.parse(el.dataset.load)); featClose("views-modal-overlay"); } catch (e) {}
+      }));
+      listEl.querySelectorAll("[data-share]").forEach(el => el.addEventListener("click", () => {
+        const url = location.origin + "/shared/" + el.dataset.share;
+        if (navigator.clipboard) navigator.clipboard.writeText(url);
+        el.textContent = "copied!"; setTimeout(() => el.textContent = "copy link", 1500);
+      }));
+      listEl.querySelectorAll("[data-delview]").forEach(b => b.addEventListener("click", async ev => {
+        await apiFetch("/api/me/watchlists/" + ev.currentTarget.dataset.delview, { method: "DELETE" });
+        featViewsRefresh();
+      }));
+    }
+  } catch (e) {}
+}
+async function featViewSave() {
+  const st = document.getElementById("views-status");
+  const name = (document.getElementById("view-name") || {}).value || "";
+  if (!name.trim()) { if (st) { st.textContent = "Name the view first."; st.className = "feat-status err"; } return; }
+  const share = (document.getElementById("view-share") || {}).checked;
+  const r = await apiFetch("/api/me/watchlists", { method: "POST", body: JSON.stringify({ name, filters: featReadFilters(), share }) });
+  if (r.status === 402) { featClose("views-modal-overlay"); featNeedsPro(); return; }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { if (st) { st.textContent = d.detail || "Save failed."; st.className = "feat-status err"; } return; }
+  document.getElementById("view-name").value = "";
+  if (st) { st.textContent = "Saved" + (d.shareToken ? " with a shareable link." : "."); st.className = "feat-status ok"; }
+  featViewsRefresh();
+}
+
+async function featAdminSave() {
+  const st = document.getElementById("admin-status"), g = id => document.getElementById(id);
+  const n = id => parseInt(g(id).value, 10);
+  const body = {
+    name: g("ad-name").value, country: g("ad-country").value, position: g("ad-position").value,
+    tier: n("ad-tier"), club: g("ad-club").value, age: n("ad-age"),
+    minutes: n("ad-minutes") || 0, goals: n("ad-goals") || 0, assists: n("ad-assists") || 0,
+    progPasses: n("ad-progPasses") || 0, progCarries: n("ad-progCarries") || 0, tklInt: n("ad-tklInt") || 0,
+    marketValue: n("ad-marketValue") || 0, hasAgent: g("ad-hasAgent").value,
+    contractExpires: n("ad-contractExpires") || 2027, clubContactEmail: g("ad-clubContactEmail").value,
+  };
+  if (!body.name.trim() || !body.country.trim()) { if (st) { st.textContent = "Name and country are required."; st.className = "feat-status err"; } return; }
+  const r = await apiFetch("/api/admin/players", { method: "POST", body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { if (st) { st.textContent = d.detail || "Add failed."; st.className = "feat-status err"; } return; }
+  if (st) { st.textContent = `Added ${d.name} (#${d.id}).`; st.className = "feat-status ok"; }
+  g("ad-name").value = ""; g("ad-clubContactEmail").value = "";
+  if (typeof renderTable === "function") renderTable();
+}
+
+function initFeatures() {
+  featInitPresets();
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+  on("feat-upgrade-btn", () => featOpen("pricing-modal-overlay"));
+  on("pricing-go-btn", featGoPro);
+  on("feat-ledger-btn", () => { featOpen("ledger-modal-overlay"); featLedgerRefresh(); });
+  on("ledger-snapshot-btn", featLedgerSnapshot);
+  on("feat-views-btn", () => { featOpen("views-modal-overlay"); featViewsRefresh(); });
+  on("view-save-btn", featViewSave);
+  on("feat-admin-btn", () => featOpen("admin-modal-overlay"));
+  on("admin-save-btn", featAdminSave);
+  document.querySelectorAll(".feat-close").forEach(b => b.addEventListener("click", ev => featClose(ev.target.dataset.close + "-modal-overlay")));
+  document.querySelectorAll(".feat-modal-overlay").forEach(o => o.addEventListener("click", ev => { if (ev.target === o) o.classList.remove("open"); }));
+  featRefreshMe();
+}
+
 init();
 initDashboard();
 initDemo();
 initTour();
+initFeatures();
 </script>
 </body>
 </html>
