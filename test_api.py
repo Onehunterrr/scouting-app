@@ -205,6 +205,18 @@ def test_player_ids_endpoint():
     assert set(d["players"][0].keys()) == {"id", "name", "country"}
 
 
+def test_roster_summary():
+    assert client.get("/api/stats/summary").status_code == 401  # gated
+    d = authed_get("/api/stats/summary").json()
+    assert d["count"] == TOTAL
+    assert d["avgAge"] > 0
+    assert d["avgKnownMarketValue"] > 0
+    assert 0 <= d["withAgentPct"] <= 100
+    # country filter narrows the roster and stays valid
+    dc = authed_get("/api/stats/summary", country="Japan").json()
+    assert 0 < dc["count"] <= TOTAL
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------

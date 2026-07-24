@@ -369,6 +369,22 @@ def get_player_value(player_id: int, user=Depends(current_user)):
     raise HTTPException(status_code=404, detail="Player not found")
 
 
+@app.get("/api/stats/summary")
+def roster_summary(country: str | None = None, user=Depends(current_user)):
+    """Aggregate stats for the (optionally country-filtered) roster: size, average
+    age, average known market value, and the share of represented players."""
+    players = get_scored()
+    if country:
+        players = [p for p in players if p["country"] == country]
+    known = [p["marketValue"] for p in players if p.get("marketValue")]
+    return {
+        "count": len(players),
+        "avgAge": round(sum(p["age"] for p in players) / len(players), 1) if players else 0,
+        "avgKnownMarketValue": round(sum(known) / len(known)) if known else 0,
+        "withAgentPct": round(100 * sum(1 for p in players if p["hasAgent"] == "Yes") / len(players)) if players else 0,
+    }
+
+
 @app.get("/api/meta")
 def get_meta():
     ps = get_players()
