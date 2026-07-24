@@ -65,6 +65,48 @@ def _seed_sqlite_if_needed(url):
         shutil.copy(SEED_DB, path)
 
 
+def _seed_players_if_empty(eng):
+    """Populate the players table from the shipped scouting.db when the target
+    database has no players yet. This lets a fresh non-SQLite database (e.g. a
+    newly provisioned Postgres) come up fully populated on first boot.
+
+    It only ever touches the players table, and only when it is empty, so it is
+    safe to run on every startup: existing players are left alone and the
+    users / shortlists / notes tables (i.e. real accounts) are never modified.
+    """
+    if not os.path.exists(SEED_DB):
+        return
+    # Nothing to do if this engine already points at the shipped/seeded SQLite.
+    if str(eng.url) == f"sqlite:///{SEED_DB}":
+        return
+    try:
+        with eng.connect() as conn:
+            existing = conn.execute(
+                select(func.count()).select_from(players_t)).scalar_one()
+        if existing:
+            return
+        seed_eng = create_engine(f"sqlite:///{SEED_DB}", future=True)
+        with seed_eng.connect() as sconn:
+            rows = [dict(m) for m in
+                    sconn.execute(select(players_t)).mappings().all()]
+        if not rows:
+            return
+        with eng.begin() as conn:
+            for i in range(0, len(rows), 200):
+                conn.execute(insert(players_t), rows[i:i + 200])
+        # Postgres tracks its own PK sequence -- resync it so future INSERTs
+        # (e.g. weekly_update) don't collide with the copied ids.
+        if eng.url.get_backend_name().startswith("postgres"):
+            from sqlalchemy import text
+            with eng.begin() as conn:
+                conn.execute(text(
+                    "SELECT setval(pg_get_serial_sequence('players', 'id'), "
+                    "COALESCE((SELECT MAX(id) FROM players), 1))"))
+        print(f"[init_db] seeded {len(rows)} players into empty database")
+    except Exception as exc:  # never let seeding crash startup
+        print(f"[init_db] player seeding skipped: {exc}")
+
+
 def init_db(url=None):
     """(Re-)initialise the engine + player cache. Tests call this with their
     own URL; normal startup uses env DATABASE_URL or the sqlite default."""
@@ -73,6 +115,7 @@ def init_db(url=None):
     _seed_sqlite_if_needed(url)
     engine = create_engine(url, future=True)
     metadata.create_all(engine, checkfirst=True)
+    _seed_players_if_empty(engine)
     _raw_players = None
     _scored_cache = {}
     return engine
