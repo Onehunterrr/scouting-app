@@ -221,6 +221,7 @@ def list_players(
     wProg: int | None = Query(default=None, ge=0, le=100),
     wDef: int | None = Query(default=None, ge=0, le=100),
     wAge: int | None = Query(default=None, ge=0, le=100),
+    user=Depends(current_user),
 ):
     scored = get_scored(_parse_weights(wGa, wProg, wDef, wAge))
 
@@ -285,14 +286,14 @@ def list_players(
 
 
 @app.get("/api/players/ids")
-def list_player_ids():
+def list_player_ids(user=Depends(current_user)):
     """Lightweight id <-> (name, country) map for shortlist key syncing."""
     return {"players": [{"id": p["id"], "name": p["name"], "country": p["country"]}
                         for p in get_players()]}
 
 
 @app.get("/api/players/{player_id}")
-def get_player(player_id: int):
+def get_player(player_id: int, user=Depends(current_user)):
     for p in get_scored():
         if p.get("id") == player_id:
             return p
@@ -300,7 +301,7 @@ def get_player(player_id: int):
 
 
 @app.get("/api/players/{player_id}/value")
-def get_player_value(player_id: int):
+def get_player_value(player_id: int, user=Depends(current_user)):
     for p in get_scored():
         if p.get("id") == player_id:
             current = p["displayMarketValue"]

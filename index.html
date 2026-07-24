@@ -93,7 +93,7 @@
     margin-bottom: 4px;
     color: var(--text);
   }
-  .field select, .field input[type=text], .field input[type=number] {
+  .field select, .field input[type=text], .field input[type=number], .field input[type=password] {
     width: 100%;
     padding: 7px 8px;
     border: 1px solid var(--border);
@@ -101,6 +101,7 @@
     font-size: 13px;
     background: var(--card-alt);
     color: var(--text);
+    box-sizing: border-box;
   }
   .field select option { background: var(--card-alt); color: var(--text); }
   .agent-checks label {
@@ -143,7 +144,10 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 18px 0; flex-wrap: wrap;
   }
-  .dash-bar-left { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .dash-bar-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .dash-layout-wrap { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dash-layout { background: var(--card-alt); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+  .dash-layout option { background: var(--card-alt); color: var(--text); }
   .dash-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text); }
   .dash-hint { font-size: 11.5px; color: var(--muted); }
   .dash-bar-right { display: flex; align-items: center; gap: 8px; }
@@ -158,6 +162,61 @@
   .demo-btn { border-color: var(--amber); color: var(--amber); }
   .demo-btn:hover { background: rgba(176,138,69,0.16); }
   .demo-btn.demo-on { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+  /* ---- Auth gate ---- */
+  .auth-gate {
+    position: fixed; inset: 0; z-index: 200; display: none;
+    align-items: center; justify-content: center; padding: 20px;
+    background:
+      radial-gradient(900px 500px at 70% -10%, rgba(193,101,63,0.22), transparent 60%),
+      linear-gradient(180deg, #1b1712, #131009);
+  }
+  .auth-gate.open { display: flex; }
+  body.gated { overflow: hidden; }
+  .gate-card {
+    width: 100%; max-width: 380px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 16px; padding: 26px 24px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+  }
+  .gate-brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: var(--text); }
+  .gate-mark { width: 24px; height: 24px; border-radius: 6px; background: linear-gradient(150deg, var(--navy-light), var(--navy)); box-shadow: 0 0 0 1px rgba(207,125,90,0.4); }
+  .gate-lede { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
+  .gate-tabs { display: flex; gap: 6px; background: var(--card-alt); border: 1px solid var(--border); border-radius: 9px; padding: 4px; margin-bottom: 16px; }
+  .gate-tab { flex: 1; padding: 8px; border: 0; background: none; color: var(--muted); font-weight: 600; font-size: 13px; border-radius: 6px; cursor: pointer; }
+  .gate-tab.active { background: var(--navy); color: #fff; }
+  .gate-card .field { margin-bottom: 12px; }
+  .gate-tos { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--muted); margin: 4px 0 14px; cursor: pointer; line-height: 1.4; }
+  .gate-tos input { width: auto; margin-top: 2px; }
+  .gate-tos a { color: var(--navy-light); }
+  .gate-submit { width: 100%; padding: 11px; border-radius: 9px; border: 1px solid var(--navy); background: var(--navy); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .gate-submit:hover { background: var(--navy-light); }
+  .gate-status { min-height: 16px; font-size: 12px; margin-top: 10px; color: var(--muted); text-align: center; }
+  .gate-status.err { color: var(--danger); }
+  .gate-status.ok { color: var(--accent); }
+  .gate-switch { text-align: center; font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+  .gate-switch a { color: var(--navy-light); font-weight: 600; }
+
+  /* ---- TOS + tutorial overlays ---- */
+  .tos-overlay, .tour-overlay {
+    position: fixed; inset: 0; z-index: 260; display: none;
+    align-items: center; justify-content: center; padding: 20px;
+    background: rgba(10,8,6,0.72);
+  }
+  .tos-overlay.open, .tour-overlay.open { display: flex; }
+  .tos-modal, .tour-card {
+    width: 100%; max-width: 440px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 14px; padding: 22px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+  }
+  .tos-modal h3 { margin: 0 0 12px; font-size: 17px; color: var(--text); }
+  .tos-body { max-height: 46vh; overflow-y: auto; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .tos-body p { margin: 0 0 10px; }
+  .tos-body b { color: var(--text); }
+  .tos-actions, .tour-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px; }
+  .tour-step { font-family: monospace; font-size: 11px; letter-spacing: 0.14em; color: var(--navy-light); text-transform: uppercase; }
+  .tour-title { margin: 8px 0 8px; font-size: 18px; color: var(--text); }
+  .tour-text { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+  .tour-nav { display: flex; gap: 8px; }
   .dash-add-wrap { position: relative; }
   .dash-add-menu {
     display: none; position: absolute; right: 0; top: 110%; z-index: 40; min-width: 200px;
@@ -183,9 +242,12 @@
   body.customizing [data-widget].drag-over { outline: 2px solid var(--accent); outline-offset: 2px; }
   body.customizing [data-widget].dragging { opacity: .45; }
   .wgt-tools {
-    position: absolute; top: -10px; right: -6px; z-index: 20;
+    position: absolute; top: -11px; right: -7px; z-index: 30;
     display: flex; gap: 4px;
   }
+  /* give the top row of widgets room so their tool handles never crowd the bar above */
+  body.customizing .layout { padding-top: 26px; }
+  body.customizing .summary-bar { margin-top: 4px; }
   .wgt-tools button {
     width: 20px; height: 20px; line-height: 1; padding: 0; border-radius: 50%;
     border: 1px solid var(--border); background: var(--card); color: var(--text);
@@ -646,11 +708,72 @@
 </head>
 <body>
 
+<!-- ===== Auth gate: no data is shown until the user signs in ===== -->
+<div class="auth-gate" id="auth-gate" role="dialog" aria-modal="true" aria-label="Sign in to ScoutEdge">
+  <div class="gate-card">
+    <div class="gate-brand"><span class="gate-mark" aria-hidden="true"></span>ScoutEdge</div>
+    <div class="gate-lede" id="gate-lede">Sign in to your scouting workspace.</div>
+    <div class="gate-tabs">
+      <button type="button" class="gate-tab active" id="gate-tab-login" data-mode="login">Sign in</button>
+      <button type="button" class="gate-tab" id="gate-tab-signup" data-mode="signup">Create account</button>
+    </div>
+    <div class="field">
+      <label for="gate-username">Username</label>
+      <input type="text" id="gate-username" autocomplete="username" placeholder="Your username">
+    </div>
+    <div class="field">
+      <label for="gate-password">Password</label>
+      <input type="password" id="gate-password" autocomplete="current-password" placeholder="At least 6 characters">
+    </div>
+    <label class="gate-tos" id="gate-tos-wrap" style="display:none;">
+      <input type="checkbox" id="gate-tos">
+      <span>I have read and agree to the <a href="#" id="gate-tos-link">Terms of Service</a>.</span>
+    </label>
+    <button type="button" class="gate-submit" id="gate-submit">Sign in</button>
+    <div class="gate-status" id="gate-status"></div>
+    <div class="gate-switch" id="gate-switch">New to ScoutEdge? <a href="#" id="gate-switch-link">Create an account</a></div>
+  </div>
+</div>
+
+<!-- Terms of Service modal -->
+<div class="tos-overlay" id="tos-overlay">
+  <div class="tos-modal">
+    <h3>ScoutEdge — Terms of Service</h3>
+    <div class="tos-body">
+      <p><b>1. Demo software.</b> ScoutEdge is a demonstration product. All player records, market values, and scores are procedurally generated sample data and are not real scouting information.</p>
+      <p><b>2. Your account.</b> You are responsible for keeping your login credentials secure. Do not enter a real or reused password — this is a demo environment.</p>
+      <p><b>3. Acceptable use.</b> Use ScoutEdge only for lawful evaluation. Do not attempt to disrupt the service, access other users' data, or scrape the platform.</p>
+      <p><b>4. Data &amp; privacy.</b> Your shortlist and notes are stored against your account so they follow you across devices. We do not sell your data.</p>
+      <p><b>5. No warranty.</b> The service is provided "as is," without warranty of any kind. Scores and estimates are model output, not professional advice — always follow up with real scouting.</p>
+      <p><b>6. Changes.</b> These terms may be updated as the product evolves. Continued use constitutes acceptance of the current terms.</p>
+    </div>
+    <div class="tos-actions">
+      <button type="button" class="tb-btn" id="tos-close">Close</button>
+      <button type="button" class="dash-btn dash-btn-primary" id="tos-agree">I agree</button>
+    </div>
+  </div>
+</div>
+
+<!-- First-run tutorial -->
+<div class="tour-overlay" id="tour-overlay">
+  <div class="tour-card">
+    <div class="tour-step" id="tour-step">1 / 5</div>
+    <h3 class="tour-title" id="tour-title"></h3>
+    <p class="tour-text" id="tour-text"></p>
+    <div class="tour-actions">
+      <button type="button" class="tb-btn" id="tour-skip">Skip</button>
+      <div class="tour-nav">
+        <button type="button" class="tb-btn" id="tour-prev">Back</button>
+        <button type="button" class="dash-btn dash-btn-primary" id="tour-next">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="header-inner">
     <div class="header-titles">
       <h1>ScoutEdge</h1>
-      <p class="tagline">Find undervalued players before anyone else.</p>
     </div>
     <div class="header-account" id="auth-card" style="display:none;">
       <button class="account-toggle" id="account-toggle" aria-expanded="false">&#128100; Sign in / Sign up</button>
@@ -686,6 +809,12 @@
 <div class="dash-bar">
   <div class="dash-bar-left">
     <span class="dash-title">Dashboard</span>
+    <label class="dash-layout-wrap">Layout:
+      <select id="dash-layout" class="dash-layout">
+        <option value="base">Base (default)</option>
+        <option value="custom">My layout</option>
+      </select>
+    </label>
     <span class="dash-hint" id="dash-hint">Customize your view &mdash; add, remove, or drag panels. Your layout is saved automatically.</span>
   </div>
   <div class="dash-bar-right">
@@ -810,7 +939,7 @@
           <option value="all">All</option>
         </select>
       </span>
-      <span class="api-status" id="api-status">Offline mode -- embedded data, browser-local shortlists/notes</span>
+      <span class="api-status" id="api-status"></span>
     </div>
 
     <div class="table-wrap">
@@ -5979,9 +6108,7 @@ function setApiMode(on) {
   if (allOpt) allOpt.disabled = on;   // "All" is offline-only
   if (on && pageState.size === "all") { pageState.size = 50; if (sizeSel) sizeSel.value = "50"; }
   const status = document.getElementById("api-status");
-  if (status) status.textContent = on
-    ? "Connected to API (" + API_BASE + ") -- server-side data, accounts enabled"
-    : "Offline mode -- embedded data, browser-local shortlists/notes";
+  if (status) status.textContent = "";
 }
 
 /* ---------------------------------------------------------------------
@@ -6721,7 +6848,7 @@ async function renderTableApi() {
   const seq = ++apiFetchSeq;
   let data;
   try {
-    const res = await fetch(API_BASE + "/api/players?" + buildPlayersQuery(true).toString());
+    const res = await apiFetch("/api/players?" + buildPlayersQuery(true).toString());
     if (!res.ok) throw new Error("HTTP " + res.status);
     data = await res.json();
   } catch (e) {
@@ -6835,7 +6962,6 @@ function renderInsights() {
     ${row("Missing club contact", h.missingEmail)}
     ${row("Stale (>30d no update)", h.stale)}
     ${row("Duplicate-review candidates", h.dupeRecords)}
-    <div class="route-note">A data-quality "scan" of the full database, the way RevOps audits a CRM before acting on it. Lower bars are healthier.</div>
   `;
 
   /* ---- 2. Pipeline Funnel (current view) ---- */
@@ -6860,7 +6986,6 @@ function renderInsights() {
         <div class="funnel-bar-row"><div class="funnel-bar ${st.cls}" style="width:${w}%">${st.count.toLocaleString("en-US")}</div></div>
       </div>`;
     }).join("")}
-    <div class="route-note">Your flag tiers read as a pipeline: from everyone in view down to the hottest, actionable, unrepresented targets.</div>
   `;
 
   /* ---- 3. Routing Engine (current view) ---- */
@@ -6877,7 +7002,6 @@ function renderInsights() {
     ${rule("age &lt; 18 <b>(minor)</b>", minors, "Club youth/academy office only")}
     ${rule("has agent = <b>Yes</b>", agented, "Route through the player's agent")}
     ${rule("<b>otherwise</b>", direct, "Club sporting director / first-team office")}
-    <div class="route-note">Rules-based contact assignment -- the same routing logic RevOps automates for lead distribution, applied to the current view.</div>
   `;
 }
 
@@ -7004,7 +7128,7 @@ async function exportViewCsv() {
     const params = buildPlayersQuery(false);
     params.set("page", "1");
     params.set("pageSize", "2000");
-    const res = await fetch(API_BASE + "/api/players?" + params.toString());
+    const res = await apiFetch("/api/players?" + params.toString());
     const data = await res.json();
     downloadCsv("scouting_view.csv", buildCsv(data.items));
   } catch (e) {
@@ -7022,7 +7146,7 @@ async function exportShortlistCsv() {
     params.set("pageSize", "2000");
     params.set("sort", "undervaluedScore");
     params.set("dir", "desc");
-    const res = await fetch(API_BASE + "/api/players?" + params.toString());
+    const res = await apiFetch("/api/players?" + params.toString());
     const data = await res.json();
     downloadCsv("scouting_shortlist.csv", buildCsv(data.items));
   } catch (e) {
@@ -7383,15 +7507,15 @@ function logout() {
   authToken = null;
   authUser = null;
   try { localStorage.removeItem(AUTH_KEY); } catch (e) {}
-  setAuthStatus("Logged out. Shortlist and notes remain saved in this browser.", "");
-  updateAuthUI();
+  // Full reload so no player data remains on screen and the sign-in gate returns.
+  location.reload();
 }
 
 async function initApiMode(meta) {
   apiMeta = meta;
   setApiMode(true);
   try {
-    const res = await fetch(API_BASE + "/api/players/ids");
+    const res = await apiFetch("/api/players/ids");
     const d = await res.json();
     (d.players || []).forEach(pl => {
       const k = pl.name + "|" + pl.country;
@@ -7571,12 +7695,23 @@ function initEvents() {
   });
 }
 
-function init() {
+let _appStarted = false;
+function startApp() {
+  if (_appStarted) return;
+  _appStarted = true;
   populateCountryFilter();
-  syncWeightLabels();
-  initEvents();
   renderTable();   // offline-first render; API mode swaps in if the server answers
   detectApi().then(meta => { if (meta) initApiMode(meta); });
+  maybeStartTour();
+}
+
+function init() {
+  syncWeightLabels();
+  initEvents();
+  loadAuth();
+  initGate();
+  if (authToken) { hideGate(); startApp(); }
+  else { showGate(); }
 }
 
 /* ============================================================================
@@ -7605,6 +7740,7 @@ function dashSaveConfig() {
       Array.from(c.querySelectorAll(":scope > [data-widget]")).map(w => w.dataset.widget);
   });
   try { localStorage.setItem(DASH_KEY, JSON.stringify(cfg)); } catch (e) {}
+  dashSetActive("custom");   // any edit builds/updates the user's own layout
 }
 function dashCaptureDefault() {
   dashContainers().forEach(c => {
@@ -7625,11 +7761,27 @@ function dashSetHidden(w, hide, save) {
   else { delete w.dataset.hidden; w.style.display = ""; }
   if (save) { dashSaveConfig(); dashRefreshAddMenu(); }
 }
-function dashApplyConfig() {
+const DASH_ACTIVE_KEY = "scoutedge.dashboard.active";
+function dashGetActive() { try { return localStorage.getItem(DASH_ACTIVE_KEY) || "base"; } catch (e) { return "base"; } }
+function dashSetActive(name) {
+  try { localStorage.setItem(DASH_ACTIVE_KEY, name); } catch (e) {}
+  const sel = document.getElementById("dash-layout");
+  if (sel && sel.value !== name) sel.value = name;
+}
+function dashApplyBase() {
+  // the shared default: every panel visible, default order
+  Object.keys(DASH_DEFAULT_ORDER).forEach(c => dashOrderContainer(c, DASH_DEFAULT_ORDER[c]));
+  dashWidgets().forEach(w => dashSetHidden(w, false, false));
+}
+function dashApplyCustom() {
   const cfg = dashLoadConfig();
   if (cfg.order) Object.keys(cfg.order).forEach(c => dashOrderContainer(c, cfg.order[c]));
   const hidden = new Set(cfg.hidden || []);
   dashWidgets().forEach(w => dashSetHidden(w, hidden.has(w.dataset.widget), false));
+}
+function dashApplyActive() {
+  if (dashGetActive() === "custom") dashApplyCustom();
+  else { dashSetActive("base"); dashApplyBase(); }
 }
 
 function dashAddTools(w) {
@@ -7725,14 +7877,24 @@ function dashSetCustomizing(on) {
 
 function initDashboard() {
   dashCaptureDefault();
-  dashApplyConfig();
+  const sel = document.getElementById("dash-layout");
+  if (sel) {
+    sel.value = dashGetActive();
+    sel.addEventListener("change", e => {
+      const v = e.target.value;
+      dashSetActive(v);
+      if (v === "custom") dashApplyCustom(); else dashApplyBase();
+    });
+  }
+  dashApplyActive();
   dashInitDnD();
   document.getElementById("dash-customize-btn")
     .addEventListener("click", () => dashSetCustomizing(!dashCustomizing));
   document.getElementById("dash-reset-btn").addEventListener("click", () => {
-    Object.keys(DASH_DEFAULT_ORDER).forEach(c => dashOrderContainer(c, DASH_DEFAULT_ORDER[c]));
-    dashWidgets().forEach(w => dashSetHidden(w, false, false));
-    dashSaveConfig(); dashRefreshAddMenu();
+    // "Reset layout" returns to the shared Base layout (keeps the user's custom saved).
+    dashApplyBase();
+    dashSetActive("base");
+    dashRefreshAddMenu();
   });
   const addBtn = document.getElementById("dash-add-btn");
   const addMenu = document.getElementById("dash-add-menu");
@@ -7798,9 +7960,140 @@ function initDemo() {
   right.insertBefore(btn, right.firstChild);
 }
 
+/* ============================================================================
+   Sign-in gate + Terms of Service + first-run tutorial.
+   The gate covers the whole app until the user signs in with a real account,
+   so no player data is shown to anyone who is not logged in.
+   ==========================================================================*/
+let gateMode = "login";
+
+function showGate() {
+  const g = document.getElementById("auth-gate");
+  if (g) g.classList.add("open");
+  document.body.classList.add("gated");
+  const u = document.getElementById("gate-username");
+  if (u) setTimeout(() => u.focus(), 50);
+}
+function hideGate() {
+  const g = document.getElementById("auth-gate");
+  if (g) g.classList.remove("open");
+  document.body.classList.remove("gated");
+}
+function setGateStatus(msg, cls) {
+  const el = document.getElementById("gate-status");
+  if (el) { el.textContent = msg || ""; el.className = "gate-status" + (cls ? " " + cls : ""); }
+}
+function setGateMode(mode) {
+  gateMode = mode;
+  const isSignup = mode === "signup";
+  document.getElementById("gate-tab-login").classList.toggle("active", !isSignup);
+  document.getElementById("gate-tab-signup").classList.toggle("active", isSignup);
+  document.getElementById("gate-tos-wrap").style.display = isSignup ? "flex" : "none";
+  document.getElementById("gate-submit").textContent = isSignup ? "Create account" : "Sign in";
+  document.getElementById("gate-lede").textContent = isSignup
+    ? "Create a free account to open your scouting workspace."
+    : "Sign in to your scouting workspace.";
+  document.getElementById("gate-switch").innerHTML = isSignup
+    ? 'Already have an account? <a href="#" id="gate-switch-link">Sign in</a>'
+    : 'New to ScoutEdge? <a href="#" id="gate-switch-link">Create an account</a>';
+  document.getElementById("gate-switch-link").addEventListener("click", e => {
+    e.preventDefault(); setGateMode(isSignup ? "login" : "signup");
+  });
+  document.getElementById("gate-password").setAttribute("autocomplete", isSignup ? "new-password" : "current-password");
+  setGateStatus("");
+}
+
+async function gateSubmit() {
+  const username = document.getElementById("gate-username").value.trim();
+  const password = document.getElementById("gate-password").value;
+  if (!username || !password) { setGateStatus("Enter a username and password.", "err"); return; }
+  if (gateMode === "signup") {
+    if (password.length < 6) { setGateStatus("Password must be at least 6 characters.", "err"); return; }
+    if (!document.getElementById("gate-tos").checked) { setGateStatus("Please accept the Terms of Service to continue.", "err"); return; }
+  }
+  const path = gateMode === "signup" ? "/api/auth/register" : "/api/auth/login";
+  setGateStatus(gateMode === "signup" ? "Creating your account..." : "Signing in...", "");
+  let data = {};
+  try {
+    const res = await fetch(API_BASE + path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) { setGateStatus(typeof data.detail === "string" ? data.detail : "That didn't work — try again.", "err"); return; }
+  } catch (e) { setGateStatus("Could not reach the server. Try again.", "err"); return; }
+  authToken = data.token; authUser = data.username;
+  try { localStorage.setItem(AUTH_KEY, JSON.stringify({ token: authToken, username: authUser })); } catch (e) {}
+  document.getElementById("gate-password").value = "";
+  const wasSignup = gateMode === "signup";
+  hideGate();
+  startApp();
+  updateAuthUI();
+  if (wasSignup) { try { localStorage.setItem("scoutedge.tour.pending", "1"); } catch (e) {} }
+}
+
+function initGate() {
+  document.getElementById("gate-tab-login").addEventListener("click", () => setGateMode("login"));
+  document.getElementById("gate-tab-signup").addEventListener("click", () => setGateMode("signup"));
+  document.getElementById("gate-switch-link").addEventListener("click", e => { e.preventDefault(); setGateMode(gateMode === "signup" ? "login" : "signup"); });
+  document.getElementById("gate-submit").addEventListener("click", gateSubmit);
+  ["gate-username", "gate-password"].forEach(id => {
+    document.getElementById(id).addEventListener("keydown", e => { if (e.key === "Enter") gateSubmit(); });
+  });
+  // Terms of Service modal
+  const tos = document.getElementById("tos-overlay");
+  document.getElementById("gate-tos-link").addEventListener("click", e => { e.preventDefault(); tos.classList.add("open"); });
+  document.getElementById("tos-close").addEventListener("click", () => tos.classList.remove("open"));
+  document.getElementById("tos-agree").addEventListener("click", () => {
+    document.getElementById("gate-tos").checked = true; tos.classList.remove("open"); setGateStatus("");
+  });
+  setGateMode("login");
+}
+
+/* ---- First-run tutorial ---- */
+const TOUR_STEPS = [
+  { title: "Welcome to ScoutEdge", text: "This is your scouting workspace. It ranks undervalued, lower-tier players so you can find bargains before the market does. Here's a 20-second tour." },
+  { title: "Filter & search", text: "Use the Filters panel on the left to narrow by position, country, league tier, age and representation — the whole board updates instantly." },
+  { title: "Tune the scoring", text: "The Scoring Weights let you decide how much goals, progression, defence and youth matter. The Undervalued Score recomputes live, so the ranking is always yours." },
+  { title: "RevOps Insights", text: "The Data Health scan grades your data before you act on it, the pipeline funnel shows your hottest targets, and the routing engine tells you who to contact." },
+  { title: "Make it yours", text: "Hit “Customize” to add, remove and drag panels into the layout you like — it's saved to your account. That's it — happy scouting!" },
+];
+let tourIdx = 0;
+function renderTour() {
+  const s = TOUR_STEPS[tourIdx];
+  document.getElementById("tour-step").textContent = (tourIdx + 1) + " / " + TOUR_STEPS.length;
+  document.getElementById("tour-title").textContent = s.title;
+  document.getElementById("tour-text").textContent = s.text;
+  document.getElementById("tour-prev").style.visibility = tourIdx === 0 ? "hidden" : "visible";
+  document.getElementById("tour-next").textContent = tourIdx === TOUR_STEPS.length - 1 ? "Get started" : "Next";
+}
+function endTour() {
+  document.getElementById("tour-overlay").classList.remove("open");
+  try { localStorage.setItem("scoutedge.tour.done", "1"); localStorage.removeItem("scoutedge.tour.pending"); } catch (e) {}
+}
+function startTour() {
+  tourIdx = 0; renderTour();
+  document.getElementById("tour-overlay").classList.add("open");
+}
+function maybeStartTour() {
+  let done = "0", pending = "0";
+  try { done = localStorage.getItem("scoutedge.tour.done"); pending = localStorage.getItem("scoutedge.tour.pending"); } catch (e) {}
+  if (done === "1" && pending !== "1") return;
+  setTimeout(startTour, 600);
+}
+function initTour() {
+  document.getElementById("tour-next").addEventListener("click", () => {
+    if (tourIdx >= TOUR_STEPS.length - 1) endTour();
+    else { tourIdx++; renderTour(); }
+  });
+  document.getElementById("tour-prev").addEventListener("click", () => { if (tourIdx > 0) { tourIdx--; renderTour(); } });
+  document.getElementById("tour-skip").addEventListener("click", endTour);
+}
+
 init();
 initDashboard();
 initDemo();
+initTour();
 </script>
 </body>
 </html>
