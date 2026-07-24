@@ -57,6 +57,7 @@
   .account-panel .ap-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
   .account-panel .ap-title b { color: var(--navy-light); }
   .account-panel .ap-sub { font-size: 11.5px; color: var(--muted); margin-bottom: 12px; line-height: 1.4; }
+  .account-panel .ap-success { font-size: 15px; font-weight: 800; color: var(--accent); margin-bottom: 4px; }
   .account-panel .field label { color: var(--text); }
 
   .layout {
@@ -615,8 +616,9 @@
           <div class="auth-status" id="auth-status">New here? Pick a username &amp; password, then tap <b>Create account</b>.</div>
         </div>
         <div id="auth-logged" style="display:none;">
+          <div class="ap-success">&#10003; You're in!</div>
           <div class="ap-title">Signed in as <b id="auth-user"></b></div>
-          <div class="ap-sub">Your shortlist &amp; notes now sync to your account.</div>
+          <div class="ap-sub">Your shortlist &amp; notes now sync to your account across devices.</div>
           <button class="reset-btn" id="auth-logout-btn" style="margin-top:10px;">Log out</button>
         </div>
       </div>
@@ -7259,10 +7261,11 @@ function updateAuthUI() {
     logged.style.display = "";
     document.getElementById("auth-user").textContent = authUser || "";
     if (toggle) toggle.innerHTML = "&#9679; " + (authUser || "Account") + " &#9662;";
-    // once logged in, collapse the panel so the header stays clean
-    const panel = document.getElementById("account-panel");
-    if (panel) panel.classList.remove("open");
-    if (toggle) toggle.setAttribute("aria-expanded", "false");
+    // NOTE: intentionally do NOT auto-close the dropdown here. When a user
+    // signs in / creates an account we want the panel to stay open and show
+    // the "Signed in as X" confirmation, otherwise success looks like nothing
+    // happened. On initial page load the panel has no .open class anyway, so
+    // it stays closed; it only becomes visible when the user opens it.
   } else {
     form.style.display = "";
     logged.style.display = "none";
