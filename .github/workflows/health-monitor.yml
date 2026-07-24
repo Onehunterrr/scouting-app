@@ -1,0 +1,32 @@
+name: Data Health Monitor
+
+# Runs the Data Health SCAN on a schedule, compares against health_baseline.json,
+# and opens an issue if data completeness regresses. Also runnable on demand.
+on:
+  schedule:
+    - cron: "0 8 * * 1" # Mondays 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  scan:
+    name: Data Health SCAN
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run Data Health SCAN
+        run: python health_monitor.py
+      - name: Open an issue on regression
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Data health regression detected ($(date +%F))" \
+            --body "The scheduled **Data Health SCAN** flagged a regression against the committed baseline. Review the run summary: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
