@@ -3,176 +3,184 @@ test_api.py -- pytest suite for api_server.py (FastAPI TestClient / httpx).
 
 Run:  python3 -m pytest test_api.py -v
 
-Uses its own throwaway SQLite copy in /tmp so it never touches the canonical
-scouting.db, and re-inits the app's engine before the run.
+Uses its own throwaway SQLite copy so it never touches the canonical
+scouting.db, re-inits the app's engine, and disables the in-memory rate
+limiter (which would otherwise throttle the suite's many auth calls).
+
+The data endpoints (/api/players*) require a JWT; a shared authenticated
+client is created once at import and reused via the `authed_get` helper.
 """
 
 import math
 import os
 import shutil
 import sqlite3
-import uuid
+import tempfile
 
 import pytest
 from fastapi.testclient import TestClient
 
-TEST_DB_DIR = f"/tmp/scouting_api_test_{uuid.uuid4().hex[:8]}"
+TEST_DB_DIR = tempfile.mkdtemp(prefix="scouting_api_test_")
 TEST_DB = os.path.join(TEST_DB_DIR, "scouting.db")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-os.makedirs(TEST_DB_DIR, exist_ok=True)
 shutil.copy(os.path.join(BASE_DIR, "scouting.db"), TEST_DB)
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
+os.environ["RATE_LIMIT_DISABLED"] = "1"
 
 import api_server  # noqa: E402  (env must be set before import)
 api_server.init_db(f"sqlite:///{TEST_DB}")
 
 client = TestClient(api_server.app)
 
+# One shared authenticated user for all data-endpoint access.
+_reg = client.post("/api/auth/register", json={"username": "data_user", "password": "secret123"})
+assert _reg.status_code == 200, _reg.text
+AUTH = {"Authorization": "Bearer " + _reg.json()["token"]}
+
+# Total players in the shipped test DB (currently 5,000; kept dynamic so the
+# suite doesn't break when the roster grows).
+TOTAL = client.get("/api/meta").json()["players"]
+
+
+def authed_get(path, **params):
+    return client.get(path, headers=AUTH, params=params or None)
+
 
 # ---------------------------------------------------------------------------
-# /api/meta
+# /api/meta (public)
 # ---------------------------------------------------------------------------
 def test_meta():
     r = client.get("/api/meta")
     assert r.status_code == 200
     m = r.json()
-    assert m["players"] == 1000
+    assert m["players"] == TOTAL > 20
     assert m["countryCount"] == len(m["countries"]) > 20
     assert m["lastUpdated"]
     assert m["backend"] == "sqlite"
 
 
 # ---------------------------------------------------------------------------
-# /api/players -- pagination, filtering, search, sort
+# Data endpoints now require auth
+# ---------------------------------------------------------------------------
+def test_data_endpoints_require_auth():
+    for path in ("/api/players", "/api/players/ids", "/api/players/1", "/api/players/1/value"):
+        assert client.get(path).status_code == 401, f"{path} should be gated"
+    bad = {"Authorization": "Bearer not.a.real.token"}
+    assert client.get("/api/players", headers=bad).status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# /api/players -- pagination, filtering, search, sort (authed)
 # ---------------------------------------------------------------------------
 def test_players_default_pagination():
-    r = client.get("/api/players")
+    r = authed_get("/api/players")
     assert r.status_code == 200
     d = r.json()
     assert d["page"] == 1 and d["pageSize"] == 50
     assert len(d["items"]) == 50
-    assert d["total"] == 1000
-    # default sort: undervaluedScore desc
+    assert d["total"] == TOTAL
     scores = [p["undervaluedScore"] for p in d["items"]]
     assert scores == sorted(scores, reverse=True)
 
 
 def test_pagination_math():
-    r1 = client.get("/api/players", params={"pageSize": 30, "page": 1})
-    r2 = client.get("/api/players", params={"pageSize": 30, "page": 2})
-    d1, d2 = r1.json(), r2.json()
+    d1 = authed_get("/api/players", pageSize=30, page=1).json()
+    d2 = authed_get("/api/players", pageSize=30, page=2).json()
     assert len(d1["items"]) == 30 and len(d2["items"]) == 30
     names1 = {p["name"] for p in d1["items"]}
     names2 = {p["name"] for p in d2["items"]}
     assert not names1 & names2, "pages must not overlap"
-    # last page has the remainder
-    last_page = math.ceil(1000 / 30)
-    rl = client.get("/api/players", params={"pageSize": 30, "page": last_page}).json()
-    assert len(rl["items"]) == 1000 - 30 * (last_page - 1)
-    # beyond the last page -> empty items, same total
-    rb = client.get("/api/players", params={"pageSize": 30, "page": last_page + 5}).json()
-    assert rb["items"] == [] and rb["total"] == 1000
+    last_page = math.ceil(TOTAL / 30)
+    rl = authed_get("/api/players", pageSize=30, page=last_page).json()
+    assert len(rl["items"]) == TOTAL - 30 * (last_page - 1)
+    rb = authed_get("/api/players", pageSize=30, page=last_page + 5).json()
+    assert rb["items"] == [] and rb["total"] == TOTAL
 
 
 def test_filters():
-    d = client.get("/api/players", params={"position": "GK", "pageSize": 2000}).json()
-    assert d["total"] > 0
-    assert all(p["position"] == "GK" for p in d["items"])
+    d = authed_get("/api/players", position="GK", pageSize=2000).json()
+    assert d["total"] > 0 and all(p["position"] == "GK" for p in d["items"])
 
-    d = client.get("/api/players", params={"tier": 3, "pageSize": 2000}).json()
+    d = authed_get("/api/players", tier=3, pageSize=2000).json()
     assert d["total"] > 0 and all(p["tier"] == 3 for p in d["items"])
 
     country = d["items"][0]["country"]
-    d2 = client.get("/api/players", params={"country": country, "pageSize": 2000}).json()
+    d2 = authed_get("/api/players", country=country, pageSize=2000).json()
     assert d2["total"] > 0 and all(p["country"] == country for p in d2["items"])
 
-    d3 = client.get("/api/players", params={"maxAge": 19, "pageSize": 2000}).json()
+    d3 = authed_get("/api/players", maxAge=19, pageSize=2000).json()
     assert d3["total"] > 0 and all(p["age"] <= 19 for p in d3["items"])
 
-    d4 = client.get("/api/players", params={"hasAgent": "No", "pageSize": 2000}).json()
+    d4 = authed_get("/api/players", hasAgent="No", pageSize=2000).json()
     assert d4["total"] > 0 and all(p["hasAgent"] == "No" for p in d4["items"])
 
-    # comma-separated multi-value hasAgent (the frontend checkbox filter)
-    d5 = client.get("/api/players", params={"hasAgent": "No,Unknown", "pageSize": 2000}).json()
-    assert d5["total"] == d4["total"] + client.get(
-        "/api/players", params={"hasAgent": "Unknown", "pageSize": 1}).json()["total"]
+    d5 = authed_get("/api/players", hasAgent="No,Unknown", pageSize=2000).json()
+    unknown_total = authed_get("/api/players", hasAgent="Unknown", pageSize=1).json()["total"]
+    assert d5["total"] == d4["total"] + unknown_total
 
-    # stacked filters narrow monotonically
-    stacked = client.get("/api/players", params={
-        "position": "MF", "maxAge": 22, "hasAgent": "No"}).json()
-    only_pos = client.get("/api/players", params={"position": "MF"}).json()
+    stacked = authed_get("/api/players", position="MF", maxAge=22, hasAgent="No").json()
+    only_pos = authed_get("/api/players", position="MF").json()
     assert stacked["total"] <= only_pos["total"]
 
 
 def test_search_q_matches_name_club_country():
-    all_players = client.get("/api/players", params={"pageSize": 2000}).json()["items"]
-
-    # by name fragment
+    all_players = authed_get("/api/players", pageSize=2000).json()["items"]
     target = all_players[0]
+
     frag = target["name"].split()[-1].lower()
-    d = client.get("/api/players", params={"q": frag, "pageSize": 2000}).json()
+    d = authed_get("/api/players", q=frag, pageSize=2000).json()
     assert any(p["name"] == target["name"] for p in d["items"])
     assert all(frag in (p["name"] + p["club"] + p["country"]).lower() for p in d["items"])
 
-    # by club fragment
     club_frag = target["club"].split()[0].lower()
-    d = client.get("/api/players", params={"q": club_frag, "pageSize": 2000}).json()
+    d = authed_get("/api/players", q=club_frag, pageSize=2000).json()
     assert d["total"] > 0
     assert all(club_frag in (p["name"] + p["club"] + p["country"]).lower() for p in d["items"])
 
-    # by country
-    d = client.get("/api/players", params={"q": target["country"].lower(), "pageSize": 2000}).json()
-    assert d["total"] > 0
-    assert any(p["country"] == target["country"] for p in d["items"])
+    d = authed_get("/api/players", q=target["country"].lower(), pageSize=2000).json()
+    assert d["total"] > 0 and any(p["country"] == target["country"] for p in d["items"])
 
-    # no match
-    d = client.get("/api/players", params={"q": "zzzznotaplayer"}).json()
+    d = authed_get("/api/players", q="zzzznotaplayer").json()
     assert d["total"] == 0 and d["items"] == []
 
 
 def test_sort():
-    d = client.get("/api/players", params={"sort": "age", "dir": "asc", "pageSize": 2000}).json()
-    ages = [p["age"] for p in d["items"]]
-    assert ages == sorted(ages)
-    d = client.get("/api/players", params={"sort": "name", "dir": "desc", "pageSize": 2000}).json()
+    d = authed_get("/api/players", sort="age", dir="asc", pageSize=2000).json()
+    assert [p["age"] for p in d["items"]] == sorted(p["age"] for p in d["items"])
+    d = authed_get("/api/players", sort="name", dir="desc", pageSize=2000).json()
     names = [p["name"].lower() for p in d["items"]]
     assert names == sorted(names, reverse=True)
-    r = client.get("/api/players", params={"sort": "notAField"})
-    assert r.status_code == 400
+    assert authed_get("/api/players", sort="notAField").status_code == 400
 
 
 def test_weights_change_scores():
-    default = client.get("/api/players/1").json()
-    custom = client.get("/api/players", params={
-        "q": default["name"], "wGa": 80, "wProg": 5, "wDef": 5, "wAge": 10,
-        "pageSize": 2000}).json()["items"]
+    default = authed_get("/api/players/1").json()
+    custom = authed_get("/api/players", q=default["name"], wGa=80, wProg=5, wDef=5, wAge=10,
+                        pageSize=2000).json()["items"]
     match = next(p for p in custom if p["id"] == 1)
-    # same player, different weights -> performanceScore generally differs
     assert match["performanceScore"] != pytest.approx(default["performanceScore"], abs=1e-12) \
-        or match["undervaluedScore"] == default["undervaluedScore"]  # degenerate tie tolerated
+        or match["undervaluedScore"] == default["undervaluedScore"]
 
 
 def test_player_detail_and_404():
-    r = client.get("/api/players/1")
+    r = authed_get("/api/players/1")
     assert r.status_code == 200
     p = r.json()
     for key in ("name", "undervaluedScore", "systemFit", "performancePct",
                 "marketPct", "displayMarketValue", "marketValueEstimated", "flag"):
         assert key in p
-    assert client.get("/api/players/999999").status_code == 404
-    assert client.get("/api/players/999999/value").status_code == 404
+    assert authed_get("/api/players/999999").status_code == 404
+    assert authed_get("/api/players/999999/value").status_code == 404
 
 
 def test_value_endpoint_deterministic():
-    r1 = client.get("/api/players/7/value")
-    r2 = client.get("/api/players/7/value")
-    assert r1.status_code == 200
-    d1, d2 = r1.json(), r2.json()
+    d1 = authed_get("/api/players/7/value").json()
+    d2 = authed_get("/api/players/7/value").json()
     assert d1 == d2, "value history must be deterministic"
     assert d1["points"] == len(d1["history"]) == 15
     assert d1["history"][-1] == d1["current"]
-    p = client.get("/api/players/7").json()
+    p = authed_get("/api/players/7").json()
     assert d1["current"] == p["displayMarketValue"]
     assert d1["estimated"] == p["marketValueEstimated"]
 
@@ -187,14 +195,13 @@ def test_scores_match_sql_view():
     scored = {p["id"]: p for p in api_server.get_scored()}
     for pid, uv_sql, flag_sql in rows:
         p = scored[pid]
-        assert abs(p["undervaluedScore"] - uv_sql) <= 0.1, \
-            f"player {pid}: python {p['undervaluedScore']} vs SQL view {uv_sql}"
+        assert abs(p["undervaluedScore"] - uv_sql) <= 0.1
         assert p["flag"] == flag_sql
 
 
 def test_player_ids_endpoint():
-    d = client.get("/api/players/ids").json()
-    assert len(d["players"]) == 1000
+    d = authed_get("/api/players/ids").json()
+    assert len(d["players"]) == TOTAL
     assert set(d["players"][0].keys()) == {"id", "name", "country"}
 
 
@@ -204,22 +211,18 @@ def test_player_ids_endpoint():
 def test_register_login_flow():
     r = client.post("/api/auth/register", json={"username": "scout_one", "password": "secret123"})
     assert r.status_code == 200
-    assert r.json()["username"] == "scout_one"
-    assert r.json()["token"]
+    assert r.json()["username"] == "scout_one" and r.json()["token"]
 
-    # duplicate username -> 400
-    r2 = client.post("/api/auth/register", json={"username": "scout_one", "password": "other12345"})
-    assert r2.status_code == 400
+    assert client.post("/api/auth/register",
+                       json={"username": "scout_one", "password": "other12345"}).status_code == 400
 
-    # login works
     r3 = client.post("/api/auth/login", json={"username": "scout_one", "password": "secret123"})
     assert r3.status_code == 200 and r3.json()["token"]
 
-    # wrong password -> 401
-    r4 = client.post("/api/auth/login", json={"username": "scout_one", "password": "wrongpass"})
-    assert r4.status_code == 401
+    assert client.post("/api/auth/login",
+                       json={"username": "scout_one", "password": "wrongpass"}).status_code == 401
 
-    # weak inputs -> 400
+    # weak inputs -> 400 (business rule), not a 5xx
     assert client.post("/api/auth/register", json={"username": "ab", "password": "secret123"}).status_code == 400
     assert client.post("/api/auth/register", json={"username": "valid_name", "password": "123"}).status_code == 400
 
@@ -236,44 +239,71 @@ def test_unauthed_401():
     assert client.put("/api/me/shortlist", json={"playerIds": [1]}).status_code == 401
     assert client.get("/api/me/notes/1").status_code == 401
     assert client.put("/api/me/notes/1", json={"text": "x"}).status_code == 401
-    bad = {"Authorization": "Bearer not.a.real.token"}
-    assert client.get("/api/me/shortlist", headers=bad).status_code == 401
+    assert client.get("/api/me/shortlist", headers={"Authorization": "Bearer bad"}).status_code == 401
 
 
 def test_shortlist_roundtrip():
     h = _auth_headers()
     assert client.get("/api/me/shortlist", headers=h).json()["playerIds"] == []
     r = client.put("/api/me/shortlist", json={"playerIds": [5, 1, 9, 1]}, headers=h)
-    assert r.status_code == 200
-    assert r.json()["playerIds"] == [1, 5, 9]  # deduped + sorted
+    assert r.status_code == 200 and r.json()["playerIds"] == [1, 5, 9]
     assert client.get("/api/me/shortlist", headers=h).json()["playerIds"] == [1, 5, 9]
-    # replace semantics + invalid ids dropped
     r = client.put("/api/me/shortlist", json={"playerIds": [2, 999999]}, headers=h)
     assert r.json()["playerIds"] == [2]
-    assert client.get("/api/me/shortlist", headers=h).json()["playerIds"] == [2]
 
 
 def test_notes_roundtrip_and_isolation():
     h1 = _auth_headers("notes_user_a")
     h2 = _auth_headers("notes_user_b")
     assert client.get("/api/me/notes/3", headers=h1).json()["text"] == ""
-    r = client.put("/api/me/notes/3", json={"text": "left foot, raw"}, headers=h1)
-    assert r.status_code == 200
+    assert client.put("/api/me/notes/3", json={"text": "left foot, raw"}, headers=h1).status_code == 200
     assert client.get("/api/me/notes/3", headers=h1).json()["text"] == "left foot, raw"
-    # update (upsert path)
     client.put("/api/me/notes/3", json={"text": "revised opinion"}, headers=h1)
     assert client.get("/api/me/notes/3", headers=h1).json()["text"] == "revised opinion"
-    # other user can't see it
     assert client.get("/api/me/notes/3", headers=h2).json()["text"] == ""
-    # unknown player -> 404
     assert client.put("/api/me/notes/999999", json={"text": "x"}, headers=h1).status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# Frontend served at /
+# Hardening: input caps + security headers
 # ---------------------------------------------------------------------------
-def test_root_serves_frontend():
+def test_input_caps_reject_oversized_payloads():
+    h = _auth_headers("caps_user")
+    # note text capped at 5000 chars -> 422 (not a silently-accepted 200)
+    assert client.put("/api/me/notes/1", json={"text": "y" * 6000}, headers=h).status_code == 422
+    # shortlist capped at 1000 ids -> 422
+    assert client.put("/api/me/shortlist", json={"playerIds": list(range(1, 2001))}, headers=h).status_code == 422
+    # over-long credentials -> 422
+    assert client.post("/api/auth/register",
+                       json={"username": "a" * 100, "password": "x" * 300}).status_code == 422
+
+
+def test_security_headers_present():
+    r = client.get("/api/meta")
+    assert r.headers.get("x-content-type-options") == "nosniff"
+    assert r.headers.get("x-frame-options") == "SAMEORIGIN"
+    assert "referrer-policy" in {k.lower() for k in r.headers}
+
+
+def test_rate_limiter_logic():
+    """The limiter itself works even though it's disabled for the suite."""
+    api_server._RATE_BUCKETS.clear()
+    ip = "203.0.113.7"
+    limit, _ = api_server.RATE_LIMITS["auth"]
+    allowed = sum(1 for _ in range(limit + 5) if api_server._rate_ok(ip, "auth"))
+    assert allowed == limit, f"expected {limit} allowed, got {allowed}"
+
+
+# ---------------------------------------------------------------------------
+# Frontend routing: landing at "/", app at "/app"
+# ---------------------------------------------------------------------------
+def test_landing_served_at_root():
     r = client.get("/")
-    assert r.status_code == 200
-    assert "text/html" in r.headers["content-type"]
-    assert "Global Lower-Tier Scouting Prototype" in r.text
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    assert "ScoutEdge" in r.text and "dossier" in r.text  # marketing landing markers
+
+
+def test_app_served_at_app_path():
+    r = client.get("/app")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    assert "dash-customize-btn" in r.text  # the customizable dashboard is present

@@ -28,8 +28,8 @@ import jwt
 from passlib.hash import bcrypt
 from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, select, insert, delete, update, func
 
 import scoring
@@ -153,21 +153,71 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# Lightweight in-memory rate limiting (best-effort; single-process friendly).
+# Auth endpoints get a tight per-IP budget to blunt credential brute-forcing;
+# the rest of the API gets a generous cap to absorb bursts without harming a
+# normal session.
+# ---------------------------------------------------------------------------
+import time
+from collections import defaultdict, deque
+
+_RATE_BUCKETS = defaultdict(lambda: defaultdict(deque))
+RATE_LIMITS = {"auth": (20, 60), "api": (300, 60)}  # (max_requests, window_seconds)
+RATE_LIMIT_DISABLED = os.environ.get("RATE_LIMIT_DISABLED") == "1"  # test/dev escape hatch
+
+
+def _client_ip(request):
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def _rate_ok(ip, bucket):
+    limit, window = RATE_LIMITS[bucket]
+    now = time.time()
+    dq = _RATE_BUCKETS[ip][bucket]
+    while dq and now - dq[0] > window:
+        dq.popleft()
+    if len(dq) >= limit:
+        return False
+    dq.append(now)
+    return True
+
+
+@app.middleware("http")
+async def rate_limit(request, call_next):
+    path = request.url.path
+    bucket = "auth" if path.startswith("/api/auth/") else ("api" if path.startswith("/api/") else None)
+    if bucket and not RATE_LIMIT_DISABLED and not _rate_ok(_client_ip(request), bucket):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests — please slow down."})
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return resp
+
 
 # ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
 class Credentials(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
 
 
 class ShortlistBody(BaseModel):
-    playerIds: list[int]
+    playerIds: list[int] = Field(max_length=1000)
 
 
 class NoteBody(BaseModel):
-    text: str
+    text: str = Field(max_length=5000)
 
 
 def make_token(user_id, username):

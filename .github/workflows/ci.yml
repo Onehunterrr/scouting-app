@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api-tests:
+    name: API tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run pytest
+        run: python -m pytest test_api.py -v
+
+  frontend-build:
+    name: Frontend build & JS syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Regenerate the frontend from build_html.py
+        run: |
+          python build_html.py players_current.json
+          cp Scouting_App_Prototype.html index.html
+      - name: Fail if the committed HTML is out of date
+        run: |
+          if ! git diff --quiet -- Scouting_App_Prototype.html index.html; then
+            echo "::error::Generated frontend is stale. Run 'python build_html.py players_current.json && cp Scouting_App_Prototype.html index.html' and commit."
+            git --no-pager diff --stat -- Scouting_App_Prototype.html index.html
+            exit 1
+          fi
+      - name: Syntax-check the app JavaScript
+        run: |
+          python - <<'PY'
+          import re
+          html = open("Scouting_App_Prototype.html", encoding="utf-8").read()
+          scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+          open("_appcheck.js", "w", encoding="utf-8").write(scripts[-1])
+          print(f"extracted {len(scripts)} script block(s)")
+          PY
+          node --check _appcheck.js
+          echo "app JavaScript syntax OK"
