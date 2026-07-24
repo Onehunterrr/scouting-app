@@ -155,6 +155,9 @@
   .dash-btn-primary { border-color: var(--navy); color: var(--navy-light); }
   .dash-btn-primary:hover { background: rgba(193,101,63,0.14); }
   body.customizing .dash-btn-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .demo-btn { border-color: var(--amber); color: var(--amber); }
+  .demo-btn:hover { background: rgba(176,138,69,0.16); }
+  .demo-btn.demo-on { background: var(--danger); border-color: var(--danger); color: #fff; }
   .dash-add-wrap { position: relative; }
   .dash-add-menu {
     display: none; position: absolute; right: 0; top: 110%; z-index: 40; min-width: 200px;
@@ -7738,8 +7741,66 @@ function initDashboard() {
   dashRefreshAddMenu();
 }
 
+/* ============================================================================
+   Demo scenario -- a reversible "bad import" the Data Health SCAN catches.
+   Enabled only when the URL has ?demo=1 (or ?scenario=badimport). Adds a toggle
+   to the dashboard bar that degrades a batch of records IN MEMORY so the scan
+   visibly drops from A to C -- a live talking point for a SCAN -> ROADMAP
+   walkthrough. Purely client-side and fully reversible; the database is never
+   touched.
+   ==========================================================================*/
+let CLEAN_SNAPSHOT = null;
+let demoActive = false;
+const DEMO_BATCH = 1800;
+
+function demoBadImport() {
+  const players = CLEAN_SNAPSHOT.map(p => ({ ...p }));
+  const latest = players.reduce((m, p) => (p.lastUpdated && p.lastUpdated > m) ? p.lastUpdated : m, "");
+  const latestMs = latest ? Date.parse(latest) : Date.now();
+  const staleDate = new Date(latestMs - 100 * 864e5).toISOString().slice(0, 10);
+  const n = Math.min(DEMO_BATCH, players.length);
+  for (let i = 0; i < n; i++) {
+    const p = players[i];
+    p.clubContactEmail = "";     // missing club contact
+    p.hasAgent = "Unknown";      // unknown representation
+    p.lastUpdated = staleDate;   // stale (>30d) record
+    p.dateAdded = latest;        // looks like it arrived in this week's scrape
+  }
+  // duplicate-review candidates: make ~900 pairs share a name
+  for (let k = 0; k + 1 < n; k += 2) players[k + 1].name = players[k].name;
+  return players;
+}
+
+function setDemoScenario(on) {
+  if (!CLEAN_SNAPSHOT) CLEAN_SNAPSHOT = PLAYERS.map(p => ({ ...p }));
+  demoActive = on;
+  PLAYERS = on ? demoBadImport() : CLEAN_SNAPSHOT.map(p => ({ ...p }));
+  renderInsights();                                    // re-grades the SCAN + confidence chip
+  if (!apiMode && typeof renderTable === "function") renderTable();
+  const btn = document.getElementById("demo-toggle-btn");
+  if (btn) {
+    btn.innerHTML = on ? "&#10003; Restore clean data" : "&#9888; Simulate bad import";
+    btn.classList.toggle("demo-on", on);
+  }
+}
+
+function initDemo() {
+  const q = new URLSearchParams(location.search);
+  if (q.get("demo") !== "1" && q.get("scenario") !== "badimport") return;
+  const right = document.querySelector(".dash-bar-right");
+  if (!right) return;
+  const btn = document.createElement("button");
+  btn.id = "demo-toggle-btn";
+  btn.className = "dash-btn demo-btn";
+  btn.innerHTML = "&#9888; Simulate bad import";
+  btn.title = "Demo: inject a dirty data batch the Data Health scan will catch";
+  btn.addEventListener("click", () => setDemoScenario(!demoActive));
+  right.insertBefore(btn, right.firstChild);
+}
+
 init();
 initDashboard();
+initDemo();
 </script>
 </body>
 </html>

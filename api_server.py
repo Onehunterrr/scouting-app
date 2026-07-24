@@ -426,10 +426,24 @@ def put_note(player_id: int, body: NoteBody, user=Depends(current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Static frontend -- one process serves the whole demo
+# Static frontend -- one process serves the marketing landing page ("/") and
+# the scouting app ("/app"); the REST API lives under "/api".
 # ---------------------------------------------------------------------------
+LANDING_FILE = os.path.join(BASE_DIR, "landing.html")
+
+
 @app.get("/")
-def serve_frontend():
+def serve_landing():
+    if os.path.exists(LANDING_FILE):
+        return FileResponse(LANDING_FILE, media_type="text/html")
+    # Fall back to the app itself if the landing page is missing.
+    if os.path.exists(HTML_FILE):
+        return FileResponse(HTML_FILE, media_type="text/html")
+    raise HTTPException(status_code=404, detail="landing.html not found next to api_server.py")
+
+
+@app.get("/app")
+def serve_app():
     if os.path.exists(HTML_FILE):
         return FileResponse(HTML_FILE, media_type="text/html")
     raise HTTPException(status_code=404, detail="Scouting_App_Prototype.html not found next to api_server.py")

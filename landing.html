@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScoutEdge — Find undervalued players before anyone else</title>
+<meta name="description" content="ScoutEdge ranks undervalued, unrepresented players in the world's lower-tier leagues with a transparent Undervalued Score and a RevOps-grade data health scan.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1f1b17;
+    --bg-deep: #171310;
+    --bg-raise: #262019;
+    --bg-raise-2: #2e2620;
+    --border: #3d3527;
+    --border-soft: #342c22;
+    --text: #f0e6d8;
+    --muted: #a89a86;
+    --faint: #7d7059;
+    --ember: #c1653f;
+    --ember-light: #cf7d5a;
+    --green: #6fa87a;
+    --green-soft: rgba(111,168,122,0.16);
+    --amber: #b08a45;
+    --danger: #b8543f;
+    --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    font-family: var(--body);
+    color: var(--text);
+    background:
+      radial-gradient(1100px 620px at 78% -8%, rgba(193,101,63,0.20), transparent 60%),
+      radial-gradient(900px 700px at 8% 4%, rgba(111,168,122,0.07), transparent 55%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: rgba(207,125,90,0.32); }
+  :focus-visible { outline: 2px solid var(--ember-light); outline-offset: 3px; border-radius: 4px; }
+
+  .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--ember-light);
+  }
+
+  /* ---------- nav ---------- */
+  header.nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(10px);
+    background: linear-gradient(180deg, rgba(23,19,16,0.86), rgba(23,19,16,0.55));
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.01em; }
+  .brand .mark {
+    width: 26px; height: 26px; border-radius: 7px; position: relative; flex: none;
+    background: linear-gradient(150deg, var(--ember-light), var(--ember));
+    box-shadow: 0 0 0 1px rgba(207,125,90,0.4), 0 6px 18px rgba(193,101,63,0.35);
+  }
+  .brand .mark::after {
+    content: ""; position: absolute; inset: 7px 7px auto 7px; height: 3px; border-radius: 2px;
+    background: var(--bg-deep); box-shadow: 0 6px 0 var(--bg-deep);
+  }
+  .nav-links { display: flex; align-items: center; gap: 30px; }
+  .nav-links .lnk { font-size: 14px; color: var(--muted); font-weight: 500; }
+  .nav-links .lnk:hover { color: var(--text); }
+  .nav-cta { display: flex; align-items: center; gap: 12px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    font-family: var(--body); font-weight: 600; font-size: 14px;
+    padding: 11px 18px; border-radius: 9px; border: 1px solid transparent;
+    transition: transform .12s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary {
+    background: linear-gradient(160deg, var(--ember-light), var(--ember));
+    color: #1a130e; box-shadow: 0 8px 24px rgba(193,101,63,0.32);
+  }
+  .btn-primary:hover { box-shadow: 0 10px 30px rgba(193,101,63,0.46); }
+  .btn-ghost { background: rgba(240,230,216,0.03); border-color: var(--border); color: var(--text); }
+  .btn-ghost:hover { background: rgba(240,230,216,0.07); border-color: var(--faint); }
+  .btn-sm { padding: 8px 14px; font-size: 13px; }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 84px 0 72px; }
+  .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; }
+  .hero h1 {
+    font-family: var(--display); font-weight: 800;
+    font-size: clamp(40px, 5.6vw, 68px); line-height: 1.02; letter-spacing: -0.025em;
+    margin: 18px 0 20px; text-wrap: balance;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(100deg, var(--ember-light), var(--amber));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.lede { font-size: 18px; color: var(--muted); max-width: 46ch; margin: 0 0 30px; }
+  .hero-cta { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .trust { margin-top: 26px; display: flex; gap: 22px; flex-wrap: wrap; font-family: var(--mono); font-size: 12.5px; color: var(--faint); }
+  .trust b { color: var(--text); font-weight: 600; }
+
+  /* ---------- hero dossier card ---------- */
+  .dossier {
+    background: linear-gradient(180deg, var(--bg-raise-2), var(--bg-raise));
+    border: 1px solid var(--border); border-radius: 16px; padding: 22px;
+    box-shadow: 0 30px 70px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,230,216,0.04);
+    position: relative; overflow: hidden;
+  }
+  .dossier::before {
+    content: "DOSSIER"; position: absolute; top: 16px; right: 18px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.3em; color: var(--faint);
+  }
+  .dossier-head { display: flex; align-items: center; gap: 13px; margin-bottom: 6px; }
+  .avatar {
+    width: 46px; height: 46px; border-radius: 11px; flex: none;
+    background: radial-gradient(circle at 30% 25%, var(--ember-light), var(--ember) 70%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--display); font-weight: 800; color: #1a130e; font-size: 17px;
+  }
+  .d-name { font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+  .d-meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .d-flag {
+    margin-left: auto; align-self: flex-start; font-size: 11px; font-weight: 600;
+    padding: 4px 9px; border-radius: 999px; color: var(--green);
+    background: var(--green-soft); border: 1px solid rgba(111,168,122,0.35);
+  }
+  .hr { height: 1px; background: var(--border-soft); margin: 16px 0; border: 0; }
+
+  .meter { margin-bottom: 15px; }
+  .meter-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .meter-top .lbl { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .meter-top .num { font-family: var(--mono); font-weight: 600; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .track { height: 9px; border-radius: 6px; background: var(--bg-deep); overflow: hidden; border: 1px solid var(--border-soft); }
+  .fill { height: 100%; border-radius: 6px; width: 0; transition: width 1.15s cubic-bezier(.16,.84,.34,1); }
+  .fill.perf { background: linear-gradient(90deg, var(--amber), var(--ember-light)); }
+  .fill.vis  { background: linear-gradient(90deg, #5a4c3a, #7d7059); }
+
+  .score-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 18px; padding: 14px 16px; border-radius: 12px;
+    background: var(--green-soft); border: 1px solid rgba(111,168,122,0.35);
+  }
+  .score-row .sr-lbl { font-size: 12px; color: var(--muted); }
+  .score-row .sr-lbl b { display: block; color: var(--green); font-size: 13px; font-weight: 600; margin-top: 2px; }
+  .score-big { font-family: var(--display); font-weight: 800; font-size: 40px; color: var(--green); line-height: 1; font-variant-numeric: tabular-nums; }
+  .d-foot { display: flex; justify-content: space-between; margin-top: 15px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .d-foot b { color: var(--text); font-weight: 600; }
+
+  /* ---------- generic section ---------- */
+  section { padding: 30px 0; }
+  .section-head { max-width: 62ch; margin-bottom: 34px; }
+  .section-head h2 {
+    font-family: var(--display); font-weight: 700; font-size: clamp(26px, 3.4vw, 38px);
+    letter-spacing: -0.02em; line-height: 1.08; margin: 12px 0 12px; text-wrap: balance;
+  }
+  .section-head p { color: var(--muted); font-size: 16.5px; margin: 0; }
+
+  /* ---------- equation band ---------- */
+  .equation {
+    margin: 22px 0; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, rgba(38,32,25,0.5), rgba(38,32,25,0));
+  }
+  .eq-inner { padding: 44px 0; display: grid; grid-template-columns: auto auto auto auto auto; gap: 14px 20px; align-items: center; justify-content: center; text-align: center; }
+  .eq-term { display: flex; flex-direction: column; gap: 6px; }
+  .eq-term .t-val { font-family: var(--display); font-weight: 800; font-size: clamp(22px, 3vw, 30px); letter-spacing: -0.01em; }
+  .eq-term .t-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .eq-op { font-family: var(--display); font-weight: 700; font-size: 30px; color: var(--faint); }
+  .eq-perf { color: var(--ember-light); }
+  .eq-vis { color: var(--faint); }
+  .eq-edge { color: var(--green); }
+  .eq-caption { text-align: center; color: var(--muted); font-size: 14px; padding-bottom: 44px; margin-top: -20px; }
+
+  /* ---------- scan feature ---------- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+  .scan-card {
+    background: var(--bg-raise); border: 1px solid var(--border); border-radius: 16px; padding: 22px;
+    box-shadow: 0 22px 50px rgba(0,0,0,0.4);
+  }
+  .scan-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .scan-top .st-title { font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+  .grade-badge { font-family: var(--display); font-weight: 800; font-size: 15px; padding: 5px 12px; border-radius: 8px; }
+  .grade-a { color: var(--green); background: var(--green-soft); border: 1px solid rgba(111,168,122,0.4); }
+  .scan-metrics { display: grid; gap: 10px; }
+  .sm-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
+  .sm-row .sm-l { font-size: 13px; color: var(--muted); }
+  .sm-bar { grid-column: 1 / -1; height: 6px; border-radius: 4px; background: var(--bg-deep); overflow: hidden; }
+  .sm-bar > i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--ember), var(--ember-light)); width: 0; transition: width 1s cubic-bezier(.16,.84,.34,1); }
+  .sm-row .sm-v { font-family: var(--mono); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* ---------- feature grid ---------- */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .feature {
+    background: linear-gradient(180deg, var(--bg-raise), rgba(38,32,25,0.55));
+    border: 1px solid var(--border); border-radius: 14px; padding: 22px;
+    transition: transform .18s ease, border-color .18s ease;
+  }
+  .feature:hover { transform: translateY(-3px); border-color: var(--faint); }
+  .f-ico {
+    width: 38px; height: 38px; border-radius: 10px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(193,101,63,0.14); border: 1px solid rgba(193,101,63,0.3);
+    color: var(--ember-light);
+  }
+  .f-ico svg { width: 19px; height: 19px; }
+  .feature h3 { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: -0.01em; margin: 0 0 7px; }
+  .feature p { color: var(--muted); font-size: 14px; margin: 0; }
+
+  /* ---------- stat strip ---------- */
+  .stats { border: 1px solid var(--border); border-radius: 16px; background: var(--bg-raise); overflow: hidden; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .stat { padding: 30px 24px; text-align: center; border-right: 1px solid var(--border-soft); }
+  .stat:last-child { border-right: 0; }
+  .stat .s-num { font-family: var(--display); font-weight: 800; font-size: clamp(30px, 4vw, 44px); letter-spacing: -0.02em; color: var(--ember-light); font-variant-numeric: tabular-nums; }
+  .stat .s-lbl { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+
+  /* ---------- final cta ---------- */
+  .final {
+    margin: 40px 0 20px; text-align: center; padding: 66px 28px;
+    border: 1px solid var(--border); border-radius: 20px;
+    background:
+      radial-gradient(600px 300px at 50% -20%, rgba(193,101,63,0.22), transparent 65%),
+      linear-gradient(180deg, var(--bg-raise-2), var(--bg-raise));
+  }
+  .final h2 { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.02em; margin: 0 0 14px; text-wrap: balance; }
+  .final p { color: var(--muted); font-size: 16.5px; max-width: 52ch; margin: 0 auto 28px; }
+
+  /* ---------- footer ---------- */
+  footer.foot { border-top: 1px solid var(--border-soft); padding: 30px 0; margin-top: 20px; }
+  .foot-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .foot .brand { font-size: 17px; }
+  .foot-links { display: flex; gap: 22px; font-size: 13.5px; color: var(--muted); }
+  .foot-links a:hover { color: var(--text); }
+  .foot small { color: var(--faint); font-family: var(--mono); font-size: 12px; }
+
+  /* ---------- reveal ---------- */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .fill, .sm-bar > i { transition: none; }
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    .split { grid-template-columns: 1fr; gap: 30px; }
+    .features { grid-template-columns: 1fr 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .stat:nth-child(2) { border-right: 0; }
+    .stat:nth-child(1), .stat:nth-child(2) { border-bottom: 1px solid var(--border-soft); }
+    .nav-links { display: none; }
+    .eq-inner { grid-template-columns: 1fr; gap: 6px; }
+    .eq-op { transform: rotate(90deg); }
+  }
+  @media (max-width: 560px) {
+    .features { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr; }
+    .stat { border-right: 0; border-bottom: 1px solid var(--border-soft); }
+    .hero { padding: 54px 0 44px; }
+    .nav-cta .btn-ghost { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>ScoutEdge</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a class="lnk" href="#thesis">How it works</a>
+      <a class="lnk" href="#scan">Data health</a>
+      <a class="lnk" href="#features">Features</a>
+      <a class="lnk" href="#numbers">Coverage</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-sm" href="/app">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="/app">Launch app</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow">Lower-tier scouting intelligence</span>
+        <h1>Find <span class="accent">undervalued players</span> before anyone else.</h1>
+        <p class="lede">ScoutEdge ranks the world's overlooked lower-tier talent by the gap between how good a player is and how little the market has noticed — then hands you the shortlist, the contact route, and the receipts.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/app">Launch the app
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="#thesis">See how the score works</a>
+        </div>
+        <div class="trust">
+          <span><b>5,000</b> players scouted</span>
+          <span><b>32</b> countries · six continents</span>
+          <span><b>Transparent</b> percentile scoring</span>
+        </div>
+      </div>
+
+      <!-- live dossier -->
+      <div class="dossier reveal" id="dossier" aria-label="Sample player dossier">
+        <div class="dossier-head">
+          <div class="avatar" aria-hidden="true">SY</div>
+          <div>
+            <div class="d-name">Sardor Yusupov-Karimov</div>
+            <div class="d-meta">MF · Uzbekistan · Tier 2 · Age 18</div>
+          </div>
+          <span class="d-flag">High priority · Unrepresented</span>
+        </div>
+        <hr class="hr">
+        <div class="meter">
+          <div class="meter-top"><span class="lbl">Performance percentile</span><span class="num" style="color:var(--ember-light)"><span data-count="91">0</span></span></div>
+          <div class="track"><div class="fill perf" data-fill="91"></div></div>
+        </div>
+        <div class="meter">
+          <div class="meter-top"><span class="lbl">Market visibility percentile</span><span class="num" style="color:var(--faint)"><span data-count="22">0</span></span></div>
+          <div class="track"><div class="fill vis" data-fill="22"></div></div>
+        </div>
+        <div class="score-row">
+          <div class="sr-lbl">Undervalued Score<b>the gap the market hasn't priced</b></div>
+          <div class="score-big"><span data-count="77" data-decimal="77.3">0</span></div>
+        </div>
+        <div class="d-foot">
+          <span>Market value <b>€156,500 est</b></span>
+          <span>Contract <b>2026</b></span>
+          <span>Agent <b>None</b></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THESIS / EQUATION -->
+  <section id="thesis">
+    <div class="wrap section-head reveal">
+      <span class="eyebrow">The thesis</span>
+      <h2>One number that says: good player, cheap market.</h2>
+      <p>Every player is scored inside their own position group, so a defender is measured against defenders and a goalkeeper against goalkeepers. The Undervalued Score is deliberately simple — and every point is auditable back to the underlying stats.</p>
+    </div>
+  </section>
+  <div class="equation">
+    <div class="wrap eq-inner reveal">
+      <div class="eq-term"><span class="t-val eq-perf">Performance</span><span class="t-lbl">percentile</span></div>
+      <div class="eq-op">−</div>
+      <div class="eq-term"><span class="t-val eq-vis">Market visibility</span><span class="t-lbl">percentile</span></div>
+      <div class="eq-op">=</div>
+      <div class="eq-term"><span class="t-val eq-edge">Undervalued</span><span class="t-lbl">score</span></div>
+    </div>
+    <p class="eq-caption">No black box. Adjust the weighting of goals, progression, defence and youth yourself — the ranking recomputes live.</p>
+  </div>
+
+  <!-- DATA HEALTH SCAN -->
+  <section id="scan">
+    <div class="wrap split">
+      <div class="reveal">
+        <span class="eyebrow">The differentiator</span>
+        <h2 style="font-family:var(--display);font-weight:700;font-size:clamp(26px,3.4vw,38px);letter-spacing:-0.02em;line-height:1.08;margin:12px 0 14px;">We audit the data before you act on it.</h2>
+        <p style="color:var(--muted);font-size:16.5px;margin:0 0 18px;">Borrowed straight from RevOps: before anyone works a pipeline, you scan it. ScoutEdge grades the whole database on completeness — missing values, unknown representation, missing contacts, stale records and duplicates — so you know exactly how much to trust a shortlist before you pick up the phone.</p>
+        <p style="color:var(--muted);font-size:16.5px;margin:0;">Filter the board and the scan re-grades in real time. It's the difference between a list of names and a pipeline you can defend.</p>
+      </div>
+      <div class="scan-card reveal">
+        <div class="scan-top">
+          <span class="st-title">Data health scan · 5,000 records</span>
+          <span class="grade-badge grade-a">A · 89%</span>
+        </div>
+        <div class="scan-metrics" id="scanMetrics">
+          <div class="sm-row"><span class="sm-l">Missing market value</span><span class="sm-v">1,231</span><span class="sm-bar"><i data-w="25"></i></span></div>
+          <div class="sm-row"><span class="sm-l">Unknown representation</span><span class="sm-v">1,520</span><span class="sm-bar"><i data-w="30"></i></span></div>
+          <div class="sm-row"><span class="sm-l">Missing club contact</span><span class="sm-v">0</span><span class="sm-bar"><i data-w="2"></i></span></div>
+          <div class="sm-row"><span class="sm-l">Stale (&gt;30d no update)</span><span class="sm-v">0</span><span class="sm-bar"><i data-w="2"></i></span></div>
+          <div class="sm-row"><span class="sm-l">Duplicate-review candidates</span><span class="sm-v">0</span><span class="sm-bar"><i data-w="2"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow">The workspace</span>
+        <h2>A scouting terminal you arrange your way.</h2>
+        <p>Everything a lower-tier scouting desk needs, in one board you can rebuild panel by panel.</p>
+      </div>
+      <div class="features">
+        <div class="feature reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></div>
+          <h3>Customizable dashboard</h3>
+          <p>Add, remove and drag every panel and KPI — filters, weights, insights, the table — into the layout that fits how you scout. It's saved automatically.</p>
+        </div>
+        <div class="feature reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 4-6"/></svg></div>
+          <h3>RevOps insights</h3>
+          <p>A live data-health scan, a pipeline funnel from watchlist to hottest target, and a routing engine that tells you exactly who to contact for each player.</p>
+        </div>
+        <div class="feature reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M5 8l7-5 7 5"/><path d="M5 8v8l7 5 7-5V8"/></svg></div>
+          <h3>Transparent scoring</h3>
+          <p>Slide the weights for goals, progression, defence and youth. The Undervalued Score, percentiles and system-fit all recompute in front of you.</p>
+        </div>
+        <div class="feature reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 6 3.8 9S14.5 18.3 12 21c-2.5-2.7-3.8-6-3.8-9S9.5 5.7 12 3z"/></svg></div>
+          <h3>Global coverage</h3>
+          <p>5,000 players across 32 countries on six continents — with a dedicated goalkeeper model, not a striker's metrics forced onto a keeper.</p>
+        </div>
+        <div class="feature reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 3.5l2.2 4.6 5 .7-3.6 3.5.9 5-4.4-2.4-4.4 2.4.9-5L4.3 8.8l5-.7z"/></svg></div>
+          <h3>Shortlists &amp; notes</h3>
+          <p>Star players into a shortlist and write private notes that sync to your account across devices — the start of a scouting record only you own.</p>
+        </div>
+        <div class="feature reveal">
+          <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h.01M8 17h.01"/></svg></div>
+          <h3>Export &amp; compare</h3>
+          <p>Compare up to four players on a radar chart, then export any view or your shortlist to CSV to drop into the report your director actually reads.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NUMBERS -->
+  <section id="numbers">
+    <div class="wrap">
+      <div class="stats reveal">
+        <div class="stats-grid">
+          <div class="stat"><div class="s-num"><span data-count="5000" data-suffix="+">0</span></div><div class="s-lbl">Players ranked</div></div>
+          <div class="stat"><div class="s-num"><span data-count="32">0</span></div><div class="s-lbl">Countries</div></div>
+          <div class="stat"><div class="s-num"><span data-count="4">0</span></div><div class="s-lbl">Position models</div></div>
+          <div class="stat"><div class="s-num">Weekly</div><div class="s-lbl">Data refresh</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section>
+    <div class="wrap">
+      <div class="final reveal">
+        <h2>The next transfer bargain is already in the data.</h2>
+        <p>Open the board, set your weights, and see who the market hasn't caught up to yet. No install — it runs in your browser.</p>
+        <a class="btn btn-primary" href="/app">Launch ScoutEdge
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true"></span>ScoutEdge</a>
+    <div class="foot-links">
+      <a href="#thesis">How it works</a>
+      <a href="#scan">Data health</a>
+      <a href="#features">Features</a>
+      <a href="/app">Launch app</a>
+    </div>
+    <small>Scouting intelligence for the leagues nobody else watches.</small>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function animateCount(el) {
+      var target = parseFloat(el.getAttribute("data-count"));
+      var decimal = el.getAttribute("data-decimal");
+      var suffix = el.getAttribute("data-suffix") || "";
+      var end = decimal ? parseFloat(decimal) : target;
+      if (reduce) { el.textContent = (decimal ? end.toFixed(1) : Math.round(end).toLocaleString("en-US")) + suffix; return; }
+      var dur = 1100, t0 = performance.now();
+      function step(now) {
+        var p = Math.min(1, (now - t0) / dur);
+        var e = 1 - Math.pow(1 - p, 3);
+        var val = end * e;
+        el.textContent = (decimal ? val.toFixed(1) : Math.round(val).toLocaleString("en-US")) + suffix;
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function runDossier() {
+      document.querySelectorAll("#dossier .fill").forEach(function (f) {
+        f.style.width = f.getAttribute("data-fill") + "%";
+      });
+      document.querySelectorAll("#dossier [data-count]").forEach(animateCount);
+    }
+    function runScan() {
+      document.querySelectorAll("#scanMetrics .sm-bar > i").forEach(function (i) {
+        i.style.width = i.getAttribute("data-w") + "%";
+      });
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        en.target.classList.add("in");
+        if (en.target.id === "dossier") runDossier();
+        if (en.target.querySelector && en.target.querySelector("#scanMetrics")) runScan();
+        var counters = en.target.querySelectorAll ? en.target.querySelectorAll(".stats [data-count]") : [];
+        counters.forEach(animateCount);
+        io.unobserve(en.target);
+      });
+    }, { threshold: 0.25 });
+
+    document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+
+    // hero dossier is above the fold — kick it off immediately
+    window.addEventListener("load", function () {
+      var d = document.getElementById("dossier");
+      if (d) { d.classList.add("in"); setTimeout(runDossier, 180); }
+    });
+  })();
+</script>
+</body>
+</html>

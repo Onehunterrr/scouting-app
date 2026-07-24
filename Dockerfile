@@ -6,7 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api_server.py scoring.py db_tables.py db_schema.py migrate_to_postgres.py ./
-COPY scouting.db Scouting_App_Prototype.html ./
+COPY scouting.db Scouting_App_Prototype.html landing.html ./
 
 EXPOSE 8000
 

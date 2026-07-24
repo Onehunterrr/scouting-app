@@ -1,0 +1,5 @@
+# Claude Code skills (local/user-managed, not versioned with the repo)
+.claude/skills/
+
+# Python
+__pycache__/
