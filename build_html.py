@@ -623,10 +623,8 @@ html = """<!DOCTYPE html>
 <header>
   <div class="header-inner">
     <div class="header-titles">
-      <h1>Global Lower-Tier Scouting Prototype</h1>
-      <p>Sample data (__PLAYER_COUNT__ players, __COUNTRY_COUNT__ countries, ages 17-26) &middot; refreshed weekly (10 new players added, all stats re-checked) &middot; demonstrates the percentile-based Undervalued Score methodology from the Research &amp; Build Plan</p>
-      <p class="positioning-note">How this differs from Wyscout / InStat / Scout7: those platforms are event-data + video libraries priced for professional clubs, with generic scoring across all leagues. This prototype targets the gap they leave open at the lower-tier/unrepresented-player end: transparent, user-adjustable scoring weights (not a black-box grade), goalkeeper-specific value metrics instead of reusing outfield stats on keepers, and an explicit focus on flagging undervalued, unrepresented players rather than just describing performance.</p>
-      <p class="kb-hint">Keyboard: &uarr;/&darr; move between players &middot; Enter opens the focused player &middot; / jumps to search &middot; Esc closes any open panel</p>
+      <h1>ScoutEdge</h1>
+      <p class="tagline">Find undervalued players before anyone else.</p>
     </div>
     <div class="header-account" id="auth-card" style="display:none;">
       <button class="account-toggle" id="account-toggle" aria-expanded="false">&#128100; Sign in / Sign up</button>
