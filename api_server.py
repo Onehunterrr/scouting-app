@@ -413,6 +413,14 @@ def list_player_ids(user=Depends(current_user)):
                         for p in get_players()]}
 
 
+@app.get("/api/players/all")
+def list_all_players(user=Depends(current_user)):
+    """Full player dataset (authed) so the client loads it AFTER sign-in rather
+    than having it embedded in the served HTML. Closes the view-source leak:
+    no player data is present in the page until a user is authenticated."""
+    return {"players": get_players()}
+
+
 @app.get("/api/players/{player_id}")
 def get_player(player_id: int, user=Depends(current_user)):
     for p in get_scored():
@@ -903,6 +911,66 @@ SHARED_PAGE = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 @app.get("/shared/{token}")
 def serve_shared_page(token: str):
     return HTMLResponse(SHARED_PAGE)
+
+
+def _legal_page(title, updated, sections):
+    body = "".join(f"<h2>{h}</h2>{''.join(f'<p>{para}</p>' for para in paras)}" for h, paras in sections)
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>ScoutEdge — {title}</title>
+<style>
+ body{{margin:0;background:#1b1712;color:#f0e6d8;font-family:Georgia,'Times New Roman',serif;line-height:1.6}}
+ .wrap{{max-width:760px;margin:0 auto;padding:40px 24px 80px}}
+ .brand{{color:#cf7d5a;font-weight:800;font-size:20px;text-decoration:none}}
+ h1{{font-size:30px;margin:22px 0 4px}} .upd{{color:#a89a86;font-size:13px;margin-bottom:28px}}
+ h2{{font-size:18px;margin:28px 0 8px;color:#f0e6d8}} p{{color:#cbbfad;font-size:15px;margin:0 0 12px}}
+ a.cta{{display:inline-block;margin-top:26px;background:#c1653f;color:#1a130e;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-family:system-ui,sans-serif}}
+ a{{color:#cf7d5a}}
+</style></head><body><div class="wrap">
+ <a class="brand" href="/">ScoutEdge</a>
+ <h1>{title}</h1><div class="upd">Last updated: {updated}</div>
+ {body}
+ <a class="cta" href="/app">Back to ScoutEdge →</a>
+</div></body></html>"""
+
+
+LEGAL_UPDATED = "July 24, 2026"
+LEGAL_CONTACT = os.environ.get("LEGAL_CONTACT_EMAIL", "huntercrossman7@gmail.com")
+
+TERMS_SECTIONS = [
+    ("1. Agreement", [f"By creating an account or using ScoutEdge (the “Service”), you agree to these Terms of Service. If you do not agree, do not use the Service. Questions: {LEGAL_CONTACT}."]),
+    ("2. The Service", ["ScoutEdge is a football-scouting web application that ranks players by a transparent, model-based “Undervalued Score.” Scores, market values, and estimates are model output for research and shortlisting — not professional advice or a guarantee of any outcome. Always follow up with real scouting.", "Portions of the current dataset are procedurally generated sample data and do not represent real individuals."]),
+    ("3. Accounts", ["You are responsible for your login credentials and for all activity under your account. Do not reuse an important password. You must provide accurate information and be at least 16 years old to create an account."]),
+    ("4. Acceptable use", ["You agree not to disrupt or attack the Service, access other users’ data, scrape or resell the platform in bulk, or use it for any unlawful purpose. We may suspend accounts that violate these terms."]),
+    ("5. Subscriptions & billing", ["Some features require a paid “Pro” subscription, billed through our payment processor. Subscriptions renew until cancelled; you can cancel anytime from Settings, effective at the end of the current period. Except where required by law, payments are non-refundable."]),
+    ("6. Intellectual property", ["The Service, its software, and its content are owned by ScoutEdge and its owner. Content you create (shortlists, notes) remains yours; you grant us the limited right to store and process it to provide the Service."]),
+    ("7. Disclaimers & liability", ["The Service is provided “as is,” without warranties of any kind. To the maximum extent permitted by law, ScoutEdge is not liable for any indirect or consequential damages, and total liability is limited to the amount you paid us in the prior 12 months."]),
+    ("8. Termination", ["You may stop using the Service and delete your account at any time. We may suspend or terminate access for violations of these terms."]),
+    ("9. Changes", ["We may update these terms as the product evolves. Material changes will be reflected by the “Last updated” date; continued use constitutes acceptance."]),
+    ("10. Governing law", ["These terms are governed by the laws of the State of Utah, USA, without regard to conflict-of-laws rules."]),
+    ("11. Contact", [f"Questions about these terms: {LEGAL_CONTACT}."]),
+]
+
+PRIVACY_SECTIONS = [
+    ("Overview", [f"This Privacy Policy explains what data ScoutEdge collects and how we use it. Contact: {LEGAL_CONTACT}."]),
+    ("Information we collect", ["Account data: your username and a securely hashed password (we never store your password in plain text).", "Usage data you create: your shortlists and per-player notes.", "Payment data: if you subscribe, billing is handled by our payment processor (Stripe); we do not store your card details.", "Technical data: your browser stores a login token and your dashboard-layout preferences locally (localStorage)."]),
+    ("How we use it", ["To provide and secure the Service, sync your shortlists and notes across devices, process subscriptions, and improve the product. We do not sell your personal data."]),
+    ("Storage & security", ["Data is stored in our database (PostgreSQL) and protected with access controls, hashed passwords, and transport encryption (HTTPS). No system is perfectly secure, but we take reasonable measures to protect your data."]),
+    ("Sharing", ["We share data only with service providers that help us run the Service (e.g., hosting, payment processing), and when required by law. Public “shared views” you create expose only non-personal player rankings — never contact details."]),
+    ("Your rights", [f"You can view, edit, or delete your shortlists and notes in the app, and you can request account deletion by contacting {LEGAL_CONTACT}."]),
+    ("Cookies & local storage", ["We use browser local storage for your login session and preferences. We do not use third-party advertising trackers."]),
+    ("Changes", ["We may update this policy; the “Last updated” date reflects the latest version."]),
+    ("Contact", [f"Privacy questions: {LEGAL_CONTACT}."]),
+]
+
+
+@app.get("/terms")
+def serve_terms():
+    return HTMLResponse(_legal_page("Terms of Service", LEGAL_UPDATED, TERMS_SECTIONS))
+
+
+@app.get("/privacy")
+def serve_privacy():
+    return HTMLResponse(_legal_page("Privacy Policy", LEGAL_UPDATED, PRIVACY_SECTIONS))
 
 
 if __name__ == "__main__":

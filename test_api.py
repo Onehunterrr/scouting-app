@@ -322,6 +322,26 @@ def test_app_served_at_app_path():
     assert "dash-customize-btn" in r.text  # the customizable dashboard is present
 
 
+def test_app_html_has_no_embedded_player_data():
+    """Privacy: the served app must not embed player records (view-source leak)."""
+    r = client.get("/app")
+    assert "constRAW_PLAYERS=[]" in "".join(r.text.split())
+
+
+def test_players_all_requires_auth_and_returns_dataset():
+    assert client.get("/api/players/all").status_code == 401
+    d = authed_get("/api/players/all").json()
+    assert len(d["players"]) == TOTAL
+    assert "id" in d["players"][0] and "undervaluedScore" not in d["players"][0]  # raw rows, not scored
+
+
+def test_legal_pages_served():
+    for path, marker in (("/terms", "Terms of Service"), ("/privacy", "Privacy Policy")):
+        r = client.get(path)
+        assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+        assert marker in r.text
+
+
 # ---------------------------------------------------------------------------
 # Growth features: account/billing, ledger, watchlists+share, admin
 # ---------------------------------------------------------------------------

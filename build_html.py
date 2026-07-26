@@ -1,5 +1,5 @@
 import json
-
+import os
 import sys
 import player_gen
 from transfer_pathways import PATHWAYS, DEST_CITY_POOLS, COUNTRY_TLD, COUNTRY_FEDERATION
@@ -15,7 +15,11 @@ rows_js = []
 for p in players:
     vals = [p[f] for f in ORDER]
     rows_js.append(json.dumps(vals))
-raw_players_js = ",\n".join(rows_js)
+# Privacy: do NOT embed player records in the served HTML. The app fetches the
+# dataset from the authenticated /api/players/all endpoint after sign-in, so
+# view-source never exposes player data. (Set EMBED_PLAYERS=1 to embed for a
+# fully-offline build.)
+raw_players_js = ",\n".join(rows_js) if os.environ.get("EMBED_PLAYERS") == "1" else ""
 
 fields_js = json.dumps(ORDER)
 
@@ -834,7 +838,7 @@ html = """<!DOCTYPE html>
     </div>
     <label class="gate-tos" id="gate-tos-wrap" style="display:none;">
       <input type="checkbox" id="gate-tos">
-      <span>I have read and agree to the <a href="#" id="gate-tos-link">Terms of Service</a>.</span>
+      <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span>
     </label>
     <button type="button" class="gate-submit" id="gate-submit">Sign in</button>
     <div class="gate-status" id="gate-status"></div>
@@ -1216,7 +1220,7 @@ html = """<!DOCTYPE html>
         </thead>
         <tbody id="table-body"></tbody>
       </table>
-      <div class="empty-state" id="empty-state" style="display:none;">No players match the current filters.</div>
+      <div class="empty-state" id="empty-state" style="display:none;">No players match the current filters. Try widening the age range or clearing a filter.</div>
     </div>
     </div>
   </div>
@@ -2785,8 +2789,14 @@ async function initApiMode(meta) {
 }
 
 function initEvents() {
-  ["f-search","f-position","f-country","f-tier"].forEach(id => {
+  ["f-position","f-country","f-tier"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => { pageState.page = 1; renderTable(); });
+  });
+  // Debounce the free-text search so we don't recompute on every keystroke.
+  let _searchTimer;
+  document.getElementById("f-search").addEventListener("input", () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => { pageState.page = 1; renderTable(); }, 180);
   });
   document.getElementById("f-age").addEventListener("input", e => {
     document.getElementById("f-age-val").textContent = e.target.value;
@@ -2951,11 +2961,12 @@ function initEvents() {
 }
 
 let _appStarted = false;
-function startApp() {
+async function startApp() {
   if (_appStarted) return;
   _appStarted = true;
+  if (typeof featLoadPlayers === "function") await featLoadPlayers();  // load dataset from the authed API (data is not embedded)
   populateCountryFilter();
-  renderTable();   // offline-first render; API mode swaps in if the server answers
+  renderTable();
   detectApi().then(meta => { if (meta) initApiMode(meta); });
   maybeStartTour();
   if (typeof featRefreshMe === "function") featRefreshMe();
@@ -3296,13 +3307,7 @@ function initGate() {
   ["gate-username", "gate-password"].forEach(id => {
     document.getElementById(id).addEventListener("keydown", e => { if (e.key === "Enter") gateSubmit(); });
   });
-  // Terms of Service modal
-  const tos = document.getElementById("tos-overlay");
-  document.getElementById("gate-tos-link").addEventListener("click", e => { e.preventDefault(); tos.classList.add("open"); });
-  document.getElementById("tos-close").addEventListener("click", () => tos.classList.remove("open"));
-  document.getElementById("tos-agree").addEventListener("click", () => {
-    document.getElementById("gate-tos").checked = true; tos.classList.remove("open"); setGateStatus("");
-  });
+  // Terms / Privacy now link to real /terms and /privacy pages (no modal needed).
   setGateMode("login");
 }
 
@@ -3351,6 +3356,32 @@ function initTour() {
    Decoupled + null-guarded so it never interferes with the core app.
    ==========================================================================*/
 let featMe = { isPro: false, isAdmin: false };
+let _playersLoading = false;
+
+async function featLoadPlayers() {
+  if (typeof PLAYERS !== "undefined" && PLAYERS.length) return;  // offline build already has data
+  if (!authToken || _playersLoading) return;
+  _playersLoading = true;
+  const empty = document.getElementById("empty-state");
+  if (empty) { empty.textContent = "Loading players…"; empty.style.display = ""; }
+  try {
+    const r = await apiFetch("/api/players/all");
+    if (r.ok) {
+      const d = await r.json();
+      PLAYERS = d.players || [];
+      if (typeof keyToId !== "undefined") {
+        PLAYERS.forEach(p => {
+          if (p.id != null) { const k = p.name + "|" + p.country; keyToId[k] = p.id; idToKey[p.id] = k; }
+        });
+      }
+    }
+  } catch (e) {
+    if (empty) empty.textContent = "Couldn't load players. Please refresh.";
+  } finally {
+    _playersLoading = false;
+    if (empty) empty.textContent = "No players match the current filters. Try widening the age range or clearing a filter.";
+  }
+}
 
 async function featRefreshMe() {
   if (!authToken) return;
