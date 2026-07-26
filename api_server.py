@@ -26,7 +26,7 @@ import math
 
 import jwt
 from passlib.hash import bcrypt
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -114,7 +114,7 @@ def _ensure_user_columns(eng):
     SQLite and Postgres accept 'ADD COLUMN'; we swallow the 'already exists'
     error so this is safe to run on every startup."""
     from sqlalchemy import text
-    for coldef in ("is_pro INTEGER DEFAULT 0", "role TEXT DEFAULT 'user'"):
+    for coldef in ("is_pro INTEGER DEFAULT 0", "role TEXT DEFAULT 'user'", "stripe_customer_id TEXT"):
         try:
             with eng.begin() as conn:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {coldef}"))
@@ -616,6 +616,41 @@ def billing_checkout(user=Depends(current_user)):
 def billing_cancel(user=Depends(current_user)):
     _set_pro(user["id"], False)
     return {"isPro": False}
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    """Stripe -> us. A user only becomes Pro here, after Stripe confirms the
+    payment (checkout.session.completed), and reverts to free when the
+    subscription is cancelled. This is what makes the paywall real."""
+    if not STRIPE_ENABLED:
+        raise HTTPException(status_code=404, detail="Billing not configured")
+    import stripe
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature")
+    secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    try:
+        if secret:
+            event = stripe.Webhook.construct_event(payload, sig, secret)
+        else:
+            event = _json.loads(payload)   # dev only: no signature verification
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid webhook: {e}")
+    etype = event["type"]
+    obj = event["data"]["object"]
+    if etype == "checkout.session.completed":
+        uid = obj.get("client_reference_id")
+        cust = obj.get("customer")
+        if uid:
+            with engine.begin() as conn:
+                conn.execute(update(users_t).where(users_t.c.id == int(uid))
+                             .values(is_pro=1, stripe_customer_id=cust))
+    elif etype == "customer.subscription.deleted":
+        cust = obj.get("customer")
+        if cust:
+            with engine.begin() as conn:
+                conn.execute(update(users_t).where(users_t.c.stripe_customer_id == cust).values(is_pro=0))
+    return {"received": True}
 
 
 # ---------------------------------------------------------------------------

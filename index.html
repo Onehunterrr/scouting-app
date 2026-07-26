@@ -256,6 +256,41 @@
   .admin-form input, .admin-form select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-alt); color: var(--text); font-size: 13px; }
   .feat-status { font-size: 12px; margin-top: 10px; min-height: 15px; color: var(--muted); }
   .feat-status.err { color: var(--danger); } .feat-status.ok { color: var(--accent); }
+
+  /* ---- Bottom-left profile widget (Claude-style) ---- */
+  .profile-widget { position: fixed; left: 14px; bottom: 14px; z-index: 150; width: 210px; }
+  .profile-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+  .profile-btn:hover { background: var(--card-alt); }
+  .profile-avatar { width: 30px; height: 30px; border-radius: 8px; flex: none; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(150deg, var(--navy-light), var(--navy)); color: #1a130e; font-weight: 800; font-size: 14px; }
+  .profile-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+  .profile-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .profile-plan { font-size: 11px; color: var(--muted); }
+  .profile-plan.pro { color: var(--amber); font-weight: 700; }
+  .profile-chev { color: var(--muted); font-size: 11px; }
+  .profile-menu { display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 8px; width: 100%;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 12px 34px rgba(0,0,0,.5); }
+  .profile-menu.open { display: block; }
+  .pm-item { display: block; width: 100%; text-align: left; padding: 9px 11px; border: none; background: none;
+    color: var(--text); cursor: pointer; font-size: 13px; border-radius: 7px; }
+  .pm-item:hover { background: var(--card-alt); }
+  .pm-item.pm-danger { color: var(--danger); }
+  @media (max-width: 900px) { .profile-widget { left: 8px; bottom: 8px; width: 170px; } }
+
+  /* ---- Settings modal ---- */
+  .settings-modal { max-width: 640px; }
+  .settings-body { display: grid; grid-template-columns: 150px 1fr; gap: 18px; margin-top: 8px; min-height: 260px; }
+  .settings-nav { display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--border); padding-right: 12px; }
+  .sn-item { text-align: left; padding: 9px 11px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; border-radius: 7px; }
+  .sn-item:hover { background: var(--card-alt); color: var(--text); }
+  .sn-item.active { background: var(--navy); color: #fff; }
+  .settings-content h4 { margin: 0 0 14px; font-size: 15px; color: var(--text); }
+  .set-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 13.5px; }
+  .set-row .set-k { color: var(--muted); }
+  .set-row .set-v { font-weight: 600; color: var(--text); }
+  .set-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0 0 14px; }
+  @media (max-width: 640px) { .settings-body { grid-template-columns: 1fr; } .settings-nav { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--border); padding: 0 0 10px; } }
   .dash-add-wrap { position: relative; }
   .dash-add-menu {
     display: none; position: absolute; right: 0; top: 110%; z-index: 40; min-width: 200px;
@@ -880,6 +915,68 @@
   </div>
 </div>
 
+<!-- Bottom-left profile (like Claude's) -->
+<div class="profile-widget" id="profile-widget" style="display:none;">
+  <div class="profile-menu" id="profile-menu">
+    <button class="pm-item" id="pm-settings">&#9881;&nbsp; Settings</button>
+    <button class="pm-item" id="pm-upgrade">&#9650;&nbsp; Upgrade to Pro</button>
+    <button class="pm-item pm-danger" id="pm-logout">&#10138;&nbsp; Log out</button>
+  </div>
+  <button class="profile-btn" id="profile-btn">
+    <span class="profile-avatar" id="profile-avatar">S</span>
+    <span class="profile-meta">
+      <span class="profile-name" id="profile-name">&mdash;</span>
+      <span class="profile-plan" id="profile-plan">Free plan</span>
+    </span>
+    <span class="profile-chev">&#9652;</span>
+  </button>
+</div>
+
+<!-- Full Settings UI -->
+<div class="feat-modal-overlay" id="settings-modal-overlay">
+  <div class="feat-modal settings-modal">
+    <div class="mrow"><h3>Settings</h3><button class="feat-close" data-close="settings">&times;</button></div>
+    <div class="settings-body">
+      <div class="settings-nav" id="settings-nav">
+        <button class="sn-item active" data-panel="account">Account</button>
+        <button class="sn-item" data-panel="subscription">Subscription</button>
+        <button class="sn-item" data-panel="dashboard">Dashboard</button>
+        <button class="sn-item" data-panel="admin" id="sn-admin" style="display:none;">Admin</button>
+      </div>
+      <div class="settings-content">
+        <div class="settings-panel" data-panel="account">
+          <h4>Account</h4>
+          <div class="set-row"><span class="set-k">Username</span><span class="set-v" id="set-username">&mdash;</span></div>
+          <div class="set-row"><span class="set-k">Plan</span><span class="set-v" id="set-plan">Free</span></div>
+          <button class="dash-btn" id="set-logout" style="margin-top:14px;">Log out</button>
+        </div>
+        <div class="settings-panel" data-panel="subscription" style="display:none;">
+          <h4>Subscription</h4>
+          <div id="set-sub-free">
+            <p class="set-desc">You're on the <b>Free</b> plan. Pro unlocks the Scout Ledger, saved &amp; shareable views, and CSV export.</p>
+            <button class="dash-btn dash-btn-primary" id="set-upgrade">Upgrade to Pro</button>
+          </div>
+          <div id="set-sub-pro" style="display:none;">
+            <p class="set-desc">You're on <b>ScoutEdge Pro</b> &mdash; thank you. You can cancel anytime.</p>
+            <button class="dash-btn" id="set-cancel">Cancel subscription</button>
+          </div>
+          <div class="feat-status" id="set-billing-status"></div>
+        </div>
+        <div class="settings-panel" data-panel="dashboard" style="display:none;">
+          <h4>Dashboard</h4>
+          <p class="set-desc">Reset your dashboard back to the shared Base layout at any time.</p>
+          <button class="dash-btn" id="set-reset-layout">Reset layout to Base</button>
+        </div>
+        <div class="settings-panel" data-panel="admin" style="display:none;">
+          <h4>Admin</h4>
+          <p class="set-desc">Add real players to grow the database &mdash; the moat-collection tool.</p>
+          <button class="dash-btn dash-btn-primary" id="set-add-player">Add a player</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="header-inner">
     <div class="header-titles">
@@ -933,6 +1030,7 @@
       <div class="dash-add-menu" id="dash-add-menu"></div>
     </div>
     <button class="dash-btn" id="dash-reset-btn" style="display:none;">Reset layout</button>
+    <button class="dash-btn" id="dash-views-btn">&#9635; Saved Views</button>
     <button class="dash-btn dash-btn-primary" id="dash-customize-btn">&#9881; Customize</button>
   </div>
 </div>
@@ -947,10 +1045,6 @@
   </div>
   <div class="feature-actions" id="feature-actions">
     <button class="dash-btn" id="feat-ledger-btn">&#9733; Scout Ledger</button>
-    <button class="dash-btn" id="feat-views-btn">&#9635; Saved Views</button>
-    <button class="dash-btn" id="feat-admin-btn" style="display:none;">&#9881; Admin</button>
-    <button class="dash-btn dash-btn-primary" id="feat-upgrade-btn">&#9650; Upgrade to Pro</button>
-    <span class="pro-badge" id="feat-pro-badge" style="display:none;">PRO</span>
   </div>
 </div>
 
@@ -8232,12 +8326,36 @@ async function featRefreshMe() {
   } catch (e) {}
 }
 function featApplyRole() {
-  const up = document.getElementById("feat-upgrade-btn");
-  const badge = document.getElementById("feat-pro-badge");
-  const admin = document.getElementById("feat-admin-btn");
-  if (up) up.style.display = featMe.isPro ? "none" : "";
-  if (badge) badge.style.display = featMe.isPro ? "" : "none";
-  if (admin) admin.style.display = featMe.isAdmin ? "" : "none";
+  const g = id => document.getElementById(id);
+  const name = featMe.username || authUser || "Account";
+  const pw = g("profile-widget");
+  if (pw) pw.style.display = authToken ? "" : "none";
+  if (g("profile-name")) g("profile-name").textContent = name;
+  if (g("profile-avatar")) g("profile-avatar").textContent = (name.charAt(0) || "S").toUpperCase();
+  if (g("profile-plan")) { g("profile-plan").textContent = featMe.isPro ? "Pro plan" : "Free plan"; g("profile-plan").className = "profile-plan" + (featMe.isPro ? " pro" : ""); }
+  if (g("pm-upgrade")) g("pm-upgrade").style.display = featMe.isPro ? "none" : "";
+  if (g("set-username")) g("set-username").textContent = name;
+  if (g("set-plan")) g("set-plan").textContent = featMe.isPro ? "Pro" : "Free";
+  if (g("set-sub-free")) g("set-sub-free").style.display = featMe.isPro ? "none" : "";
+  if (g("set-sub-pro")) g("set-sub-pro").style.display = featMe.isPro ? "" : "none";
+  if (g("sn-admin")) g("sn-admin").style.display = featMe.isAdmin ? "" : "none";
+  const ac = g("auth-card"); if (ac) ac.style.display = "none";   // account lives bottom-left now
+}
+function featSettingsPanel(name) {
+  document.querySelectorAll("#settings-nav .sn-item").forEach(b => b.classList.toggle("active", b.dataset.panel === name));
+  document.querySelectorAll(".settings-panel").forEach(p => p.style.display = p.dataset.panel === name ? "" : "none");
+}
+function featOpenSettings(panel) {
+  const m = document.getElementById("profile-menu"); if (m) m.classList.remove("open");
+  if (panel) featSettingsPanel(panel);
+  featOpen("settings-modal-overlay");
+}
+async function featCancelSub() {
+  const st = document.getElementById("set-billing-status");
+  try {
+    const r = await apiFetch("/api/billing/cancel", { method: "POST" });
+    if (r.ok) { featMe.isPro = false; featApplyRole(); if (st) { st.textContent = "Your subscription has been cancelled."; st.className = "feat-status ok"; } }
+  } catch (e) {}
 }
 
 function featReadFilters() {
@@ -8400,16 +8518,42 @@ async function featAdminSave() {
 function initFeatures() {
   featInitPresets();
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
-  on("feat-upgrade-btn", () => featOpen("pricing-modal-overlay"));
   on("pricing-go-btn", featGoPro);
   on("feat-ledger-btn", () => { featOpen("ledger-modal-overlay"); featLedgerRefresh(); });
   on("ledger-snapshot-btn", featLedgerSnapshot);
-  on("feat-views-btn", () => { featOpen("views-modal-overlay"); featViewsRefresh(); });
+  on("dash-views-btn", () => { featOpen("views-modal-overlay"); featViewsRefresh(); });   // Saved Views, now by the Customize cog
   on("view-save-btn", featViewSave);
-  on("feat-admin-btn", () => featOpen("admin-modal-overlay"));
   on("admin-save-btn", featAdminSave);
+
+  // Bottom-left profile widget + menu
+  const profMenu = document.getElementById("profile-menu");
+  on("profile-btn", (ev) => { ev.stopPropagation(); if (profMenu) profMenu.classList.toggle("open"); });
+  document.addEventListener("click", ev => { if (profMenu && !ev.target.closest("#profile-widget")) profMenu.classList.remove("open"); });
+  on("pm-settings", () => featOpenSettings("account"));
+  on("pm-upgrade", () => { if (profMenu) profMenu.classList.remove("open"); featOpen("pricing-modal-overlay"); });
+  on("pm-logout", () => logout());
+
+  // Settings UI
+  document.querySelectorAll("#settings-nav .sn-item").forEach(b => b.addEventListener("click", () => featSettingsPanel(b.dataset.panel)));
+  on("set-logout", () => logout());
+  on("set-upgrade", () => featOpen("pricing-modal-overlay"));
+  on("set-cancel", featCancelSub);
+  on("set-reset-layout", () => { if (typeof dashApplyBase === "function") { dashApplyBase(); if (typeof dashSetActive === "function") dashSetActive("base"); } });
+  on("set-add-player", () => { featClose("settings-modal-overlay"); featOpen("admin-modal-overlay"); });
+
   document.querySelectorAll(".feat-close").forEach(b => b.addEventListener("click", ev => featClose(ev.target.dataset.close + "-modal-overlay")));
   document.querySelectorAll(".feat-modal-overlay").forEach(o => o.addEventListener("click", ev => { if (ev.target === o) o.classList.remove("open"); }));
+
+  // Returning from a real Stripe checkout: poll for the webhook to flip us to Pro.
+  if (new URLSearchParams(location.search).get("upgraded") === "1") {
+    let tries = 0;
+    const poll = () => featRefreshMe().then(() => {
+      if (featMe.isPro) { featOpenSettings("subscription"); }
+      else if (tries++ < 6) setTimeout(poll, 1500);
+    });
+    setTimeout(poll, 800);
+  }
+
   featRefreshMe();
 }
 

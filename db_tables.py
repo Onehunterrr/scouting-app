@@ -44,8 +44,9 @@ users = Table(
     Column("username", Text, unique=True, nullable=False),
     Column("password_hash", Text, nullable=False),
     Column("created_at", Text, nullable=False),
-    Column("is_pro", Integer, default=0),      # 1 = Pro subscriber
-    Column("role", Text, default="user"),      # "user" | "admin"
+    Column("is_pro", Integer, default=0),           # 1 = Pro subscriber
+    Column("role", Text, default="user"),           # "user" | "admin"
+    Column("stripe_customer_id", Text),             # Stripe customer, for webhook cancellations
 )
 
 # Scout Ledger: a user's dated prediction snapshots + their eventual outcome.
