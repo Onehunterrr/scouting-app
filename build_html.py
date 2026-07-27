@@ -1355,7 +1355,7 @@ const AGE_DECLINE_RATE = 0.055, AGE_DECLINE_EXP = 1.35;
    (n=3,769: min 8k, median 79k, max 150k) -- not against global transfer
    headlines, since these are lower-division players. */
 const VALUE_FLOOR = 10000.0, VALUE_CEIL = 500000.0;
-const VALUE_MEDIAN = 79000.0, VALUE_SPREAD = 3.15, VALUE_BASE_REF = 0.490347;
+const VALUE_MEDIAN = 79000.0, VALUE_SPREAD = 3.15, VALUE_BASE_REF = 0.488432;
 const MINUTES_REF = 2200.0, MINUTES_FACTOR_FLOOR = 0.85;
 
 /* Position-relative reference points for the quality composite. The old
@@ -1380,10 +1380,10 @@ const HOT_DEAL_THRESHOLD = 55;
 
 const POS_REF_MULT = 1.8;
 const DEFAULT_POS_REFS = {
-  FW: {ga: 1.7064, prog: 11.6933, def: 0.9194},
-  MF: {ga: 1.3554, prog: 20.2545, def: 3.9751},
-  DF: {ga: 0.3672, prog: 8.3270, def: 9.5443},
-  GK: {ga: 1.6178, prog: 131.7499, def: 1.4240},
+  FW: {ga: 1.7172, prog: 11.7424, def: 0.9308},
+  MF: {ga: 1.3627, prog: 20.3451, def: 3.9788},
+  DF: {ga: 0.3698, prog: 8.3605, def: 9.6036},
+  GK: {ga: 1.6224, prog: 132.1557, def: 1.4207},
 };
 
 function transfermarktSearchUrl(name) {

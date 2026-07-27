@@ -27,41 +27,17 @@ in the modal. New fields: acquirabilityScore, dealScore, hotProspect,
 contractYearsRemaining, dealExplain — all API-sortable automatically.
 241 Hot Prospects (4.8%, target band 2-8%).
 
-## QUEUED (new request, not started) — Central European roster coverage
+## Central European roster expansion: COMPLETE and verified
 
-User: *"I want my app to be a lot more central european players not just from the balkans."*
-Correct diagnosis — the current 32 countries have **six Balkan** (Albania, Croatia, Montenegro,
-North Macedonia, Serbia, Slovenia) and **zero true Central European** ones.
-
-**Decisions the user already made (do not re-ask):**
-
-- **Add six countries:** Poland, Czechia, Slovakia, Hungary, **Austria, Switzerland**.
-- **Rebalance to hold the roster at 5,000** — i.e. reduce over-represented countries to make room,
-  rather than growing the total.
-
-**Two caveats the user was shown and accepted — but which still need handling in code:**
-
-1. Austrian/Swiss lower divisions are wealthier and already well-scouted, so those players are less
-   likely to be genuinely unrepresented (the app's wedge). Consider skewing AT/CH toward tier 3–4
-   and a lower `hasAgent = "No"` rate so they don't dominate the unrepresented flags.
-2. **Rebalancing deletes existing players.** The app has per-user shortlists and notes keyed by
-   player id (`api_server.py` accounts; check `db_tables.py` / `db_schema.py` for the shortlist and
-   notes tables and their FK/cascade behaviour). **Before deleting anything, check whether those
-   tables reference `players.id`** and either remap or accept orphaning deliberately. Do not
-   silently break saved shortlists.
-
-**Work involved** (all in `player_gen.py` unless noted): per-country first/last name pools,
-`SOURCE_CITIES`, `COUNTRY_TLD`, `COUNTRY_FEDERATION`, plus `PATHWAYS` in `transfer_pathways.py`.
-Then regenerate `players_current.json`, re-run `db_migrate.py`, rebuild the frontend.
-
-**Ordering note (already checked):** this does NOT invalidate the scoring rework. `compute_scores`
-derives the position reference points from the cohort at runtime, so they self-adjust. Only
-`VALUE_BASE_REF` needs re-tuning, via the existing calibration script (bisects until
-`median(estimate) == 79000`) — one command, not a redo. `DEFAULT_POS_REFS` is a standalone-call
-fallback and should be refreshed at the same time.
-
-**Recommended sequence:** finish the scoring work (steps 1–7 above) first so the parity/SQL/test
-baseline is green against the current dataset, *then* do the roster change and re-calibrate.
+Added Poland, Czechia, Slovakia, Hungary, Austria, Switzerland (130 each; 38
+countries, roster held at exactly 5,000 via proportional trim of 780 players,
+seeded/reproducible in roster_rebalance_2026.py). Safety pre-check confirmed the
+shipped scouting.db has no user tables, so no shortlists/notes could break.
+AT/CH generate with the WELL_SCOUTED skew (tiers 3-4, more agents) -- only 11 of
+237 Hot Prospects are AT/CH. Recalibrated: VALUE_BASE_REF 0.490347 -> 0.488432,
+DEFAULT_POS_REFS refreshed, all three copies (Python/JS/SQL) updated.
+Verified: PY-JS parity 0 mismatches on the new roster; median estimate 79,000;
+237 Hot Prospects (4.7%); pytest 31 passed; DB + both HTML files rebuilt.
 
 ## Resume
 

@@ -9,7 +9,18 @@ TLD = {
     "Ghana":"gh","Senegal":"sn","Zambia":"zm","Ivory Coast":"ci","Mali":"ml","Cameroon":"cm",
     "Japan":"jp","South Korea":"kr","Uzbekistan":"uz","Thailand":"th","Vietnam":"vn","Iraq":"iq",
     "Costa Rica":"cr","Honduras":"hn","Panama":"pa","Jamaica":"jm","New Zealand":"nz",
+    "Poland":"pl","Czechia":"cz","Slovakia":"sk","Hungary":"hu","Austria":"at","Switzerland":"ch",
 }
+
+# Austria/Switzerland lower divisions are wealthier and better-scouted than the
+# rest of the pool, so their generated players skew toward tiers 3-4 and are
+# more likely to already have an agent -- otherwise they would flood the
+# "unrepresented" flags with players who aren't realistically findable-first.
+TIER_WEIGHTS_DEFAULT = [0.45, 0.35, 0.20]
+TIER_WEIGHTS_WELL_SCOUTED = [0.25, 0.40, 0.35]
+AGENT_WEIGHTS_DEFAULT = [0.45, 0.25, 0.30]        # No, Yes, Unknown
+AGENT_WEIGHTS_WELL_SCOUTED = [0.25, 0.45, 0.30]
+WELL_SCOUTED = {"Austria", "Switzerland"}
 
 FEDERATION = {
     "Iceland":"KSI (Icelandic Football Association) player registry",
@@ -44,6 +55,12 @@ FEDERATION = {
     "Panama":"FEPAFUT (Panamanian Football Federation) player registry",
     "Jamaica":"JFF (Jamaica Football Federation) player registry",
     "New Zealand":"NZF (New Zealand Football) player registry",
+    "Poland":"PZPN (Polish Football Association) player registry",
+    "Czechia":"FACR (Football Association of the Czech Republic) player registry",
+    "Slovakia":"SFZ (Slovak Football Association) player registry",
+    "Hungary":"MLSZ (Hungarian Football Federation) player registry",
+    "Austria":"OFB (Austrian Football Association) player registry",
+    "Switzerland":"SFV (Swiss Football Association) player registry",
 }
 
 # (country, [first names], [last names], [city/club-root names])
@@ -144,6 +161,24 @@ NAME_POOLS = {
     "New Zealand": (["Liam","Jack","Cole","Ethan","Noah","Callum"],
                     ["Smith","Wilson","Taylor","Brown","Mitchell","Clarke"],
                     ["Auckland","Wellington","Christchurch","Hamilton"]),
+    "Poland": (["Jakub","Kacper","Mateusz","Szymon","Bartosz","Piotr","Michal","Wojciech"],
+               ["Kowalski","Nowak","Wisniewski","Wojcik","Kaminski","Zielinski","Szymanski","Mazur"],
+               ["Gdynia","Bytom","Rzeszow","Tychy","Olsztyn","Legnica"]),
+    "Czechia": (["Jan","Tomas","Petr","Ondrej","Jakub","Lukas","Martin","Adam"],
+                ["Novak","Svoboda","Dvorak","Cerny","Prochazka","Kucera","Vesely","Horak"],
+                ["Ostrava","Olomouc","Zlin","Jihlava","Pardubice","Ceske Budejovice"]),
+    "Slovakia": (["Martin","Lukas","Marek","Peter","Milan","Juraj","Tomas","Dominik"],
+                 ["Kovac","Horvath","Varga","Toth","Balaz","Molnar","Urban","Sedlak"],
+                 ["Trnava","Zilina","Presov","Nitra","Trencin","Banska Bystrica"]),
+    "Hungary": (["Bence","Adam","Balazs","Daniel","Gergo","Levente","Marton","Zsolt"],
+                ["Nagy","Kovacs","Toth","Szabo","Horvath","Varga","Kiss","Molnar"],
+                ["Debrecen","Szeged","Gyor","Pecs","Kecskemet","Szombathely"]),
+    "Austria": (["Lukas","Florian","Michael","Stefan","Thomas","David","Markus","Philipp"],
+                ["Gruber","Huber","Bauer","Wagner","Steiner","Moser","Mayer","Hofer"],
+                ["Graz","Linz","Innsbruck","Klagenfurt","Salzburg","Wels"]),
+    "Switzerland": (["Luca","Noah","Jan","Nico","Fabian","Marco","Silvan","Remo"],
+                    ["Muller","Meier","Keller","Weber","Schmid","Baumann","Frei","Bianchi"],
+                    ["Winterthur","Lucerne","St. Gallen","Thun","Aarau","Sion"]),
 }
 
 CLUB_SUFFIX = ["FC","United","City","Athletic","Rangers","Rovers","Wanderers","SC","Town"]
@@ -211,16 +246,18 @@ def gen_stats(position, minutes=None):
 
 COUNTRIES = list(NAME_POOLS.keys())
 
-def generate_players(n, used_names, date_str, rng=None):
+def generate_players(n, used_names, date_str, rng=None, country=None):
     """Generate n new fictional players, avoiding name collisions with used_names
-    (a set that will be mutated in place). date_str is used for dateAdded/lastUpdated."""
+    (a set that will be mutated in place). date_str is used for dateAdded/lastUpdated.
+    Pass country to pin every generated player to one country (roster rebalancing);
+    omitted, each player draws a random country as before."""
     r = rng or random
     out = []
     for i in range(n):
-        country = COUNTRIES[r.randrange(len(COUNTRIES))]
-        firsts, lasts, cities = NAME_POOLS[country]
-        tld = TLD[country]
-        federation = FEDERATION[country]
+        _c = country or COUNTRIES[r.randrange(len(COUNTRIES))]
+        firsts, lasts, cities = NAME_POOLS[_c]
+        tld = TLD[_c]
+        federation = FEDERATION[_c]
 
         name = None
         # 1) try a simple "First Last" from the country pool
@@ -259,14 +296,16 @@ def generate_players(n, used_names, date_str, rng=None):
 
         position = r.choices(POSITIONS, weights=[0.15,0.30,0.30,0.25])[0]
         age = r.randint(17, 26)
-        tier = r.choices([2,3,4], weights=[0.45,0.35,0.20])[0]
+        tier = r.choices([2,3,4], weights=TIER_WEIGHTS_WELL_SCOUTED
+                         if _c in WELL_SCOUTED else TIER_WEIGHTS_DEFAULT)[0]
         minutes = r.randint(800, 2700)
         stats = gen_stats(position, minutes)
         city = r.choice(cities)
         club = f"{city} {r.choice(CLUB_SUFFIX)}"
-        league = r.choice(LEAGUE_TEMPLATES).format(c=country)
+        league = r.choice(LEAGUE_TEMPLATES).format(c=_c)
         market_value = 0 if r.random() < 0.25 else r.randint(8000, 150000)
-        has_agent = r.choices(["No","Yes","Unknown"], weights=[0.45,0.25,0.30])[0]
+        has_agent = r.choices(["No","Yes","Unknown"], weights=AGENT_WEIGHTS_WELL_SCOUTED
+                              if _c in WELL_SCOUTED else AGENT_WEIGHTS_DEFAULT)[0]
         contract_expires = r.randint(2026, 2029)
         club_email = f"info@{slug(club)}.{tld}"
 
@@ -278,7 +317,7 @@ def generate_players(n, used_names, date_str, rng=None):
             route = "Club sporting director / first-team office"
 
         out.append({
-            "name": name, "country": country, "league": league, "tier": tier, "club": club,
+            "name": name, "country": _c, "league": league, "tier": tier, "club": club,
             "position": position, "age": age, "minutes": minutes,
             "goals": stats["goals"], "assists": stats["assists"],
             "progPasses": stats["progPasses"], "progCarries": stats["progCarries"], "tklInt": stats["tklInt"],
@@ -307,9 +346,9 @@ if __name__ == "__main__":
     used_names = set()
     players = []
     for country, count in per_country_counts.items():
-        firsts, lasts, cities = NAME_POOLS[country]
-        tld = TLD[country]
-        federation = FEDERATION[country]
+        firsts, lasts, cities = NAME_POOLS[_c]
+        tld = TLD[_c]
+        federation = FEDERATION[_c]
         for _ in range(count):
             for _try in range(20):
                 name = f"{random.choice(firsts)} {random.choice(lasts)}"

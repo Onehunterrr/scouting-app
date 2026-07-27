@@ -46,6 +46,12 @@ PATHWAYS = {
     "Panama": ["Mexico", "United States"],
     "Jamaica": ["United States", "Mexico"],
     "New Zealand": ["Australia", "United States"],
+    "Poland": ["Belgium", "Turkey"],
+    "Czechia": ["Belgium", "Austria"],
+    "Slovakia": ["Austria", "Poland"],
+    "Hungary": ["Austria", "Belgium"],
+    "Austria": ["Belgium", "Portugal"],
+    "Switzerland": ["Belgium", "Portugal"],
 }
 
 # City-name pools for destination-only countries (used to generate plausible
