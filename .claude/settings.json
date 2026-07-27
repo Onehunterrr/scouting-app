@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/context-gate.mjs",
+            "timeout": 10,
+            "statusMessage": "Checking context budget..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -760,6 +760,22 @@ html = """<!DOCTYPE html>
   .cf-pos { color: var(--accent); } .cf-neg { color: var(--danger); }
   .calc-note { font-size: 10.5px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
 
+  /* Explainability box -- why this player carries the flag they carry. */
+  .ex-box { margin: 12px 0 4px; padding: 11px 13px; border-radius: 8px;
+            background: var(--panel2, rgba(127,127,127,0.07));
+            border-left: 3px solid var(--accent); }
+  .ex-summary { font-size: 12.5px; line-height: 1.5; font-weight: 600; }
+  .ex-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .ex-chip { font-size: 10.5px; padding: 3px 8px; border-radius: 999px;
+             background: rgba(127,127,127,0.14); white-space: nowrap; }
+  .ex-chip b { font-weight: 700; }
+  .ex-chip.ex-warn { background: rgba(239,106,99,0.18); }
+  .ex-dim { opacity: 0.7; }
+  .ex-notes { margin: 9px 0 0; padding-left: 17px; }
+  .ex-notes li { font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-bottom: 3px; }
+  .low-sample-badge { font-size: 9.5px; padding: 1px 5px; border-radius: 4px; margin-left: 5px;
+                      background: rgba(239,106,99,0.18); color: var(--danger); white-space: nowrap; }
+
   /* Keyboard focus */
   tbody tr.kb-focused { background: var(--card-alt); outline: 2px solid var(--navy-light); outline-offset: -2px; }
   a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, tr:focus-visible {
@@ -2887,7 +2903,7 @@ function openModal(p) {
       <div class="calc-contribrow">
         <span class="calc-chip">Weighted sum <b>${weightedSum.toFixed(3)}</b></span>
         <span>&times;</span>
-        <span class="calc-chip">Tier ${p.tier} multiplier <b>${p.tierMult.toFixed(2)}</b></span>
+        <span class="calc-chip">League strength (tier ${p.tier}) <b>${p.leagueStrength.toFixed(3)}</b></span>
         <span>=</span>
         <span class="calc-chip">Performance <b>${(p.performancePct * 100).toFixed(0)}th pct</b></span>
       </div>
@@ -2896,13 +2912,33 @@ function openModal(p) {
         <span class="cf-result ${uvPos ? 'cf-pos' : 'cf-neg'}">${uvPos ? '+' : ''}${p.undervaluedScore.toFixed(1)}</span>
         <span class="cf-lbl">Undervalued Score${p.flag ? ' &middot; ' + p.flag : ''}</span>
       </div>
-      <div class="calc-note">A positive score means the player performs better than the market currently values them${p.marketValueEstimated ? ". No market value is on record here, so the market percentile uses the raw 0 (never the display estimate) -- estimates can never inflate the score." : "."}</div>
+      <div class="calc-note">A positive score means the player performs better than the market currently values them${p.marketValueEstimated ? ". No market value is on record here, so the market percentile uses the model's estimate. Ranking the raw 0 instead would place every unknown-value player at the bottom of the market and hand them an artificially high score." : "."}</div>
     </div>`;
+
+  // Explainability: the one-line "why" plus every caveat the model knows about,
+  // so a flag is never an unexplained verdict.
+  const ex = p.explain;
+  const exNotesHtml = ex && ex.notes.length
+    ? `<ul class="ex-notes">${ex.notes.map(n => `<li>${n}</li>`).join("")}</ul>`
+    : "";
+  const explainHtml = ex ? `
+    <div class="ex-box">
+      <div class="ex-summary">${ex.summary}</div>
+      <div class="ex-chips">
+        <span class="ex-chip">Output <b>${ex.drivers[0].pct}th</b></span>
+        <span class="ex-chip">Value <b>${ex.drivers[1].pct}th</b></span>
+        <span class="ex-chip">Age <b>${ex.age}</b> <span class="ex-dim">${ex.ageBand}</span></span>
+        <span class="ex-chip${ex.lowSample ? ' ex-warn' : ''}">Minutes <b>${groupThousands(ex.minutes)}</b>${ex.lowSample ? ' <span class="ex-dim">low sample</span>' : ''}</span>
+        <span class="ex-chip">League strength <b>${ex.leagueStrength.toFixed(3)}</b></span>
+      </div>
+      ${exNotesHtml}
+    </div>` : "";
 
   document.getElementById("m-explain").innerHTML = `
     <b>Undervalued Score: ${p.undervaluedScore.toFixed(1)}</b> -- this player ${gapDesc}
     within their position group. ${p.flag ? `Flagged as <b>${p.flag}</b>.` : "Not currently flagged at the selected thresholds."}
     ${p.hasAgent === "No" ? " No agent on record -- see the Contact &amp; Verification section below before reaching out." : ""}
+    ${explainHtml}
     ${transparencyHtml}
   `;
 
@@ -3949,7 +3985,12 @@ html = (html.replace("__RAW_PLAYERS__", raw_players_js)
             .replace("__COUNTRY_TLD__", country_tld_js)
             .replace("__COUNTRY_FEDERATION__", country_federation_js))
 
-with open("Scouting_App_Prototype.html", "w", encoding="utf-8") as f:
-    f.write(html)
+# index.html is the file that actually gets served (see Dockerfile / DEPLOY.md);
+# Scouting_App_Prototype.html is the double-clickable offline copy. They were
+# previously kept byte-identical by hand, which meant a rebuild could silently
+# ship a stale index.html. Write both from the same string instead.
+for _out in ("Scouting_App_Prototype.html", "index.html"):
+    with open(_out, "w", encoding="utf-8") as f:
+        f.write(html)
 
-print("wrote html, length", len(html))
+print("wrote html, length", len(html), "->", "Scouting_App_Prototype.html, index.html")

@@ -88,6 +88,21 @@ FIELD_MAP = [
 # pipeline (which still goes through JSON for now) -- included so the
 # database is genuinely queryable on its own, not just a JSON dump with
 # extra steps.
+# Mirrors scoring.py's compute_scores exactly -- raw per-90 rates, empirical-Bayes
+# shrinkage toward the position-group minutes-weighted mean, the continuous league
+# strength coefficient, the age-value curve, the estimated-value engine, and the
+# undervalued gap ranked on displayMarketValue. Requires SQLite built with the
+# math functions (exp/pow); 3.35+ ships them and the bundled Python build has them.
+#
+# Two things this view deliberately cannot do -- see scoring.py:
+#   1. LEAGUE_STRENGTH per-league overrides are a Python dict, so the view only
+#      implements the tier-curve fallback. It will diverge the moment a league is
+#      given an explicit coefficient; that table has to be materialised into the
+#      database before SQL can honour it.
+#   2. Floating-point summation order inside SUM() OVER () is not guaranteed to
+#      match Python's list order, so the shrinkage means can differ in the last
+#      bits. test_scores_match_sql_view allows +-0.1 on undervalued_score, which
+#      absorbs it comfortably.
 UNDERVALUED_VIEW_SQL = """
 DROP VIEW IF EXISTS player_scores;
 CREATE VIEW player_scores AS
@@ -106,25 +121,100 @@ WITH rates AS (
       CASE WHEN minutes > 0 THEN sweeper_actions / minutes * 90 ELSE 0 END
     ELSE
       CASE WHEN minutes > 0 THEN CAST(tkl_int AS REAL) / minutes * 90 ELSE 0 END
-    END AS factor3_per90
+    END AS factor3_per90,
+    CASE WHEN (saves + goals_conceded) > 0
+         THEN CAST(saves AS REAL) / (saves + goals_conceded) ELSE 0 END AS save_pct,
+    CASE WHEN minutes > 0 THEN CAST(goals_conceded AS REAL) / (minutes / 90.0) ELSE 0 END AS gc_per90,
+    CASE WHEN minutes > 0 THEN CAST(clean_sheets AS REAL) / (minutes / 90.0) ELSE 0 END AS cs_rate
   FROM players
+),
+-- Position-group minutes-weighted means (the empirical-Bayes prior).
+means AS (
+  SELECT *,
+    SUM(factor1_per90 * minutes) OVER w / SUM(minutes) OVER w AS mean_ga,
+    SUM(factor2_per90 * minutes) OVER w / SUM(minutes) OVER w AS mean_prog,
+    SUM(factor3_per90 * minutes) OVER w / SUM(minutes) OVER w AS mean_def,
+    SUM(save_pct      * minutes) OVER w / SUM(minutes) OVER w AS mean_save_pct,
+    SUM(gc_per90      * minutes) OVER w / SUM(minutes) OVER w AS mean_gc,
+    SUM(cs_rate       * minutes) OVER w / SUM(minutes) OVER w AS mean_cs
+  FROM rates
+  WINDOW w AS (PARTITION BY position)
+),
+-- shrunk = (rate * minutes + posMean * K) / (minutes + K), K = 900.
+shrunk AS (
+  SELECT *,
+    (factor1_per90 * minutes + mean_ga   * 900.0) / (minutes + 900.0) AS ga_per90,
+    (factor2_per90 * minutes + mean_prog * 900.0) / (minutes + 900.0) AS prog_per90,
+    (factor3_per90 * minutes + mean_def  * 900.0) / (minutes + 900.0) AS def_per90,
+    (save_pct * minutes + mean_save_pct * 900.0) / (minutes + 900.0) AS s_save_pct,
+    (gc_per90 * minutes + mean_gc       * 900.0) / (minutes + 900.0) AS s_gc_per90,
+    (cs_rate  * minutes + mean_cs       * 900.0) / (minutes + 900.0) AS s_cs_rate,
+    minutes < 900 AS low_sample,
+    exp(-0.155 * (tier - 2.0)) AS league_strength,
+    CASE
+      WHEN age >= 24 AND age <= 27 THEN 1.0
+      WHEN age < 24 THEN 0.70 + 0.30 * pow(MIN(1.0, MAX(0.0, (age - 16.0) / 8.0)), 0.85)
+      ELSE exp(-0.055 * pow(age - 27.0, 1.35))
+    END AS age_factor
+  FROM means
+),
+-- Quality composite against position-relative references (1.8x the group mean).
+composite AS (
+  SELECT *,
+    CASE WHEN position = 'GK' THEN
+        0.5 * MIN(1.0, MAX(0.0, (s_save_pct - 0.55) / 0.35))
+      + 0.3 * MIN(1.0, MAX(0.0, 1 - s_gc_per90 / 2.2))
+      + 0.2 * MIN(1.0, MAX(0.0, s_cs_rate / 0.45))
+    ELSE
+        (CASE position WHEN 'FW' THEN 0.55 WHEN 'MF' THEN 0.40 ELSE 0.25 END)
+          * MIN(1.0, MAX(0.0, ga_per90   / (mean_ga   * 1.8)))
+      + (CASE position WHEN 'MF' THEN 0.40 ELSE 0.33 END)
+          * MIN(1.0, MAX(0.0, prog_per90 / (mean_prog * 1.8)))
+      + (CASE position WHEN 'DF' THEN 0.45 ELSE 0.27 END)
+          * MIN(1.0, MAX(0.0, def_per90  / (mean_def  * 1.8)))
+    END AS quality_composite
+  FROM shrunk
+),
+valued AS (
+  SELECT *,
+    MAX(10000.0, MIN(500000.0,
+      79000.0 * exp(3.15 * (quality_composite - 0.490347))
+              * league_strength * age_factor
+              * (0.85 + 0.15 * MIN(1.0, MAX(0.0, minutes / 2200.0)))
+    )) AS raw_value
+  FROM composite
+),
+estimated AS (
+  SELECT *,
+    CASE WHEN raw_value < 250000 THEN ROUND(raw_value / 100.0) * 100
+         WHEN raw_value < 1000000 THEN ROUND(raw_value / 1000.0) * 1000
+         ELSE ROUND(raw_value / 10000.0) * 10000 END AS estimated_market_value
+  FROM valued
+),
+display AS (
+  SELECT *,
+    CASE WHEN market_value > 0 THEN CAST(market_value AS REAL)
+         ELSE estimated_market_value END AS display_market_value
+  FROM estimated
 ),
 pct AS (
   SELECT *,
     -- CUME_DIST = count(peers <= value) / count(peers): the exact percentile
     -- convention the JS app and scoring.py use (percentileRank). PERCENT_RANK
-    -- would diverge badly on ties (e.g. the ~240 players with market_value 0).
-    CUME_DIST() OVER (PARTITION BY position ORDER BY factor1_per90) AS factor1_pct,
-    CUME_DIST() OVER (PARTITION BY position ORDER BY factor2_per90) AS factor2_pct,
-    CUME_DIST() OVER (PARTITION BY position ORDER BY factor3_per90) AS factor3_pct,
-    CUME_DIST() OVER (PARTITION BY position ORDER BY -age)          AS youth_pct,
-    CUME_DIST() OVER (PARTITION BY position ORDER BY market_value)  AS market_pct,
-    CASE tier WHEN 2 THEN 1.00 WHEN 3 THEN 0.85 ELSE 0.70 END AS tier_mult
-  FROM rates
+    -- would diverge badly on ties.
+    CUME_DIST() OVER (PARTITION BY position ORDER BY ga_per90)   AS factor1_pct,
+    CUME_DIST() OVER (PARTITION BY position ORDER BY prog_per90) AS factor2_pct,
+    CUME_DIST() OVER (PARTITION BY position ORDER BY def_per90)  AS factor3_pct,
+    CUME_DIST() OVER (PARTITION BY position ORDER BY -age)       AS youth_pct,
+    -- display_market_value, NOT market_value: ranking on the raw field sorted
+    -- every unknown-value player (0) to the bottom of the value distribution and
+    -- handed them a near-maximal undervalued gap.
+    CUME_DIST() OVER (PARTITION BY position ORDER BY display_market_value) AS market_pct
+  FROM display
 ),
 perf AS (
   SELECT *,
-    (factor1_pct * 0.25 + factor2_pct * 0.35 + factor3_pct * 0.20 + youth_pct * 0.20) * tier_mult AS performance_score
+    (factor1_pct * 0.25 + factor2_pct * 0.35 + factor3_pct * 0.20 + youth_pct * 0.20) * league_strength AS performance_score
   FROM pct
 ),
 final AS (
@@ -133,18 +223,25 @@ final AS (
   FROM perf
 )
 SELECT
-  id, name, country, position, tier, age, has_agent, market_value,
+  id, name, country, position, tier, age, has_agent, market_value, minutes,
+  low_sample,
+  ROUND(league_strength, 4) AS league_strength,
+  estimated_market_value,
+  display_market_value,
   ROUND(factor1_pct * 100, 1) AS factor1_percentile,
   ROUND(factor2_pct * 100, 1) AS factor2_percentile,
   ROUND(factor3_pct * 100, 1) AS factor3_percentile,
   ROUND(performance_pct * 100, 1) AS performance_percentile,
   ROUND(market_pct * 100, 1) AS market_percentile,
   ROUND((performance_pct - market_pct) * 100, 1) AS undervalued_score,
+  -- Low-sample players cap at Watchlist: they cannot earn High Priority.
   CASE
-    WHEN (performance_pct - market_pct) * 100 >= 40 AND has_agent = 'No' THEN 'High Priority - Unrepresented'
-    WHEN (performance_pct - market_pct) * 100 >= 40 THEN 'High Priority'
-    WHEN (performance_pct - market_pct) * 100 >= 20 AND has_agent = 'No' THEN 'Watchlist - Unrepresented'
-    WHEN (performance_pct - market_pct) * 100 >= 20 THEN 'Watchlist'
+    WHEN (performance_pct - market_pct) * 100 >= 40 AND NOT low_sample AND has_agent = 'No' THEN 'High Priority - Unrepresented'
+    WHEN (performance_pct - market_pct) * 100 >= 40 AND NOT low_sample THEN 'High Priority'
+    WHEN ((performance_pct - market_pct) * 100 >= 20
+          OR ((performance_pct - market_pct) * 100 >= 40 AND low_sample)) AND has_agent = 'No' THEN 'Watchlist - Unrepresented'
+    WHEN ((performance_pct - market_pct) * 100 >= 20
+          OR ((performance_pct - market_pct) * 100 >= 40 AND low_sample)) THEN 'Watchlist'
     ELSE ''
   END AS flag
 FROM final;

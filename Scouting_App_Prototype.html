@@ -723,6 +723,22 @@
   .cf-pos { color: var(--accent); } .cf-neg { color: var(--danger); }
   .calc-note { font-size: 10.5px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
 
+  /* Explainability box -- why this player carries the flag they carry. */
+  .ex-box { margin: 12px 0 4px; padding: 11px 13px; border-radius: 8px;
+            background: var(--panel2, rgba(127,127,127,0.07));
+            border-left: 3px solid var(--accent); }
+  .ex-summary { font-size: 12.5px; line-height: 1.5; font-weight: 600; }
+  .ex-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .ex-chip { font-size: 10.5px; padding: 3px 8px; border-radius: 999px;
+             background: rgba(127,127,127,0.14); white-space: nowrap; }
+  .ex-chip b { font-weight: 700; }
+  .ex-chip.ex-warn { background: rgba(239,106,99,0.18); }
+  .ex-dim { opacity: 0.7; }
+  .ex-notes { margin: 9px 0 0; padding-left: 17px; }
+  .ex-notes li { font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-bottom: 3px; }
+  .low-sample-badge { font-size: 9.5px; padding: 1px 5px; border-radius: 4px; margin-left: 5px;
+                      background: rgba(239,106,99,0.18); color: var(--danger); white-space: nowrap; }
+
   /* Keyboard focus */
   tbody tr.kb-focused { background: var(--card-alt); outline: 2px solid var(--navy-light); outline-offset: -2px; }
   a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, tr:focus-visible {
@@ -1268,9 +1284,53 @@ let PLAYERS = RAW_PLAYERS.map(row => {
   return p;
 });
 
-const TIER_MULT = {2: 1.00, 3: 0.85, 4: 0.70};
 const DEFAULT_WEIGHTS = {ga: 25, prog: 35, def: 20, age: 20};
 const HP_THRESHOLD = 40, WL_THRESHOLD = 20;
+
+/* ---------------------------------------------------------------------
+   Scoring-engine constants. Every value below is mirrored exactly in
+   scoring.py -- the API server and this file must produce identical
+   numbers, so the two copies are kept literally in step.
+--------------------------------------------------------------------- */
+
+/* Empirical-Bayes shrinkage: each per-90 rate is pulled toward its
+   position-group minutes-weighted mean with a prior worth SHRINK_K minutes
+   (~10 matches), so a small-sample fluke cannot top the leaderboard. */
+const SHRINK_K = 900.0;
+const LOW_SAMPLE_MINUTES = 900;
+
+/* Continuous league strength, replacing the old tier 2/3/4 buckets.
+   LEAGUE_STRENGTH is the override table keyed by the exact league name; it is
+   deliberately empty until real per-league coefficients are available, and
+   every league falls back to the smooth tier curve. */
+const LEAGUE_STRENGTH = {};
+const TIER_REF = 2.0, TIER_DECAY = 0.155, LEAGUE_STRENGTH_DEFAULT = 0.80;
+
+/* Age-value curve: rising limb to 24, flat 24-27 peak, decline after. */
+const AGE_PEAK_LO = 24.0, AGE_PEAK_HI = 27.0;
+const AGE_YOUNG_REF = 16.0, AGE_YOUNG_FLOOR = 0.70, AGE_YOUNG_EXP = 0.85;
+const AGE_DECLINE_RATE = 0.055, AGE_DECLINE_EXP = 1.35;
+
+/* Value scale, calibrated against the known market values in the dataset
+   (n=3,769: min 8k, median 79k, max 150k) -- not against global transfer
+   headlines, since these are lower-division players. */
+const VALUE_FLOOR = 10000.0, VALUE_CEIL = 500000.0;
+const VALUE_MEDIAN = 79000.0, VALUE_SPREAD = 3.15, VALUE_BASE_REF = 0.490347;
+const MINUTES_REF = 2200.0, MINUTES_FACTOR_FLOOR = 0.85;
+
+/* Position-relative reference points for the quality composite. The old
+   engine used single global constants (ga90/0.7, prog90/7, def90/4.5) that
+   were badly miscalibrated for this roster -- MF progression and GK
+   distribution were 100% clamped, so those terms carried no information at
+   all. A player at POS_REF_MULT times their group's minutes-weighted mean now
+   scores a full 1.0 on that term. */
+const POS_REF_MULT = 1.8;
+const DEFAULT_POS_REFS = {
+  FW: {ga: 1.7064, prog: 11.6933, def: 0.9194},
+  MF: {ga: 1.3554, prog: 20.2545, def: 3.9751},
+  DF: {ga: 0.3672, prog: 8.3270, def: 9.5443},
+  GK: {ga: 1.6178, prog: 131.7499, def: 1.4240},
+};
 
 function transfermarktSearchUrl(name) {
   return "https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=" + encodeURIComponent(name);
@@ -1521,6 +1581,26 @@ function percentileRank(values, value) {
   return countLE / values.length;
 }
 
+/* Sorted-once version of percentileRank. Counting via binary search over a
+   sorted copy is integer-exact, so results are bit-identical to the linear
+   scan -- but the scan made computeScores O(n^2) (150M comparisons on the
+   5,000-player roster), which stalled the UI on every weight change. */
+function percentileRanker(values) {
+  const ordered = values.slice().sort((a, b) => a - b);
+  const n = ordered.length;
+  if (n === 0) return () => 0;
+  return function (value) {
+    // Upper bound: index of the first element strictly greater than value,
+    // which equals the count of elements <= value.
+    let lo = 0, hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (ordered[mid] <= value) lo = mid + 1; else hi = mid;
+    }
+    return lo / n;
+  };
+}
+
 /* ---------------------------------------------------------------------
    Tactical system fit -- a rules-based read of which system a player's
    statistical profile suits best, from the same percentiles used for
@@ -1733,50 +1813,167 @@ function buildTransferTargets(p) {
    re-opens. This is a display/estimate aid; the Undervalued Score still
    uses only the known market value, so estimates never distort the scoring.
 --------------------------------------------------------------------- */
-function estimateMarketValue(p) {
+const clamp01 = x => Math.max(0, Math.min(1, x));
+
+/* Smooth continuous league-strength curve over tier -- exponential decay
+   rather than a lookup, so a fractional or interpolated tier gets a sensible
+   coefficient instead of snapping to a bucket. */
+function tierStrength(tier) {
+  const t = Number(tier);
+  if (!isFinite(t)) return LEAGUE_STRENGTH_DEFAULT;
+  return Math.exp(-TIER_DECAY * (t - TIER_REF));
+}
+
+function leagueStrength(p) {
+  const ls = LEAGUE_STRENGTH[p.league];
+  if (ls !== undefined && ls !== null && ls > 0) return Number(ls);
+  return tierStrength(p.tier);
+}
+
+/* Replaces the old linear youth premium (1 + max(0, 24 - age) * 0.02), which
+   wrongly implied a 17-year-old was worth more than a 24-year-old at identical
+   output. Real values rise through the early twenties, plateau across the peak
+   years, and decline after. */
+function ageValueFactor(age) {
+  const a = Number(age);
+  if (a >= AGE_PEAK_LO && a <= AGE_PEAK_HI) return 1.0;
+  if (a < AGE_PEAK_LO) {
+    const t = clamp01((a - AGE_YOUNG_REF) / (AGE_PEAK_LO - AGE_YOUNG_REF));
+    return AGE_YOUNG_FLOOR + (1.0 - AGE_YOUNG_FLOOR) * Math.pow(t, AGE_YOUNG_EXP);
+  }
+  return Math.exp(-AGE_DECLINE_RATE * Math.pow(a - AGE_PEAK_HI, AGE_DECLINE_EXP));
+}
+
+function ageBand(age) {
+  const a = Number(age);
+  if (a < AGE_PEAK_LO) return "pre-peak";
+  if (a <= AGE_PEAK_HI) return "peak";
+  return "post-peak";
+}
+
+/* shrunk = (rate * minutes + posMean * K) / (minutes + K) */
+function shrinkRate(rate, minutes, posMean) {
+  const m = minutes ? Number(minutes) : 0;
+  return (rate * m + posMean * SHRINK_K) / (m + SHRINK_K);
+}
+
+function shrinkWeight(minutes) {
+  const m = minutes ? Number(minutes) : 0;
+  return m / (m + SHRINK_K);
+}
+
+/* Minutes-weighted mean, summed in array order so the JS and Python
+   floating-point results are bit-identical. */
+function weightedMean(pairs) {
+  let num = 0.0, den = 0.0;
+  for (let i = 0; i < pairs.length; i++) {
+    const m = pairs[i][1] ? Number(pairs[i][1]) : 0;
+    num += pairs[i][0] * m;
+    den += m;
+  }
+  return den > 0 ? num / den : 0.0;
+}
+
+function ordinal(n) {
+  n = Math.trunc(n);
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return n + "th";
+  const rem10 = n % 10;
+  if (rem10 === 1) return n + "st";
+  if (rem10 === 2) return n + "nd";
+  if (rem10 === 3) return n + "rd";
+  return n + "th";
+}
+
+/* Hand-rolled so JS and Python agree regardless of locale. */
+function groupThousands(n) {
+  let s = String(Math.trunc(n));
+  let neg = false;
+  if (s.charAt(0) === "-") { neg = true; s = s.slice(1); }
+  let out = "";
+  while (s.length > 3) {
+    out = "," + s.slice(-3) + out;
+    s = s.slice(0, -3);
+  }
+  out = s + out;
+  return neg ? "-" + out : out;
+}
+
+/* The 0..1 quality signal the value engine is built on. `rates` optionally
+   supplies shrunk per-90 rates and `refs` the position group's reference
+   rates; when omitted the player's own raw rates and DEFAULT_POS_REFS are
+   used, so this stays callable for a single player. */
+function qualityComposite(p, rates, refs) {
   const minutes = p.minutes || 1;
   const m90 = minutes / 90;
-  const clamp01 = x => Math.max(0, Math.min(1, x));
-  let base; // 0..~1.2 quality signal
   if (p.position === "GK") {
-    const savePct = (p.saves + p.goalsConceded) > 0 ? p.saves / (p.saves + p.goalsConceded) : 0.6;
-    const gc90 = m90 ? p.goalsConceded / m90 : 1.5;
-    const csRate = m90 ? (p.cleanSheets || 0) / m90 : 0;
-    base = 0.5 * clamp01((savePct - 0.55) / 0.35)
+    let savePct, gc90, csRate;
+    if (rates) {
+      savePct = rates.savePct; gc90 = rates.gcPer90; csRate = rates.csRate;
+    } else {
+      savePct = (p.saves + p.goalsConceded) > 0 ? p.saves / (p.saves + p.goalsConceded) : 0.6;
+      gc90 = m90 ? p.goalsConceded / m90 : 1.5;
+      csRate = m90 ? (p.cleanSheets || 0) / m90 : 0;
+    }
+    return 0.5 * clamp01((savePct - 0.55) / 0.35)
          + 0.3 * clamp01(1 - gc90 / 2.2)
          + 0.2 * clamp01(csRate / 0.45);
-  } else {
-    const ga90 = m90 ? (p.goals + p.assists) / m90 : 0;
-    const prog90 = m90 ? (p.progPasses + p.progCarries) / m90 : 0;
-    const def90 = m90 ? p.tklInt / m90 : 0;
-    const attW = p.position === "FW" ? 0.55 : p.position === "MF" ? 0.4 : 0.25;
-    const progW = p.position === "MF" ? 0.4 : 0.33;
-    const defW = p.position === "DF" ? 0.45 : 0.27;
-    base = attW * clamp01(ga90 / 0.7)
-         + progW * clamp01(prog90 / 7)
-         + defW * clamp01(def90 / 4.5);
   }
-  const tierFactor = p.tier <= 2 ? 1.15 : p.tier === 3 ? 1.0 : 0.85;
-  const youthFactor = 1 + Math.max(0, 24 - p.age) * 0.02; // younger = potential premium
-  const minutesFactor = 0.75 + 0.25 * clamp01(minutes / 2200); // reward a real sample of minutes
-  // small deterministic jitter so estimates aren't visibly formulaic
-  const jitter = 0.9 + 0.2 * mulberry32(hashSeed(p.name + "|mv"))();
-  let val = (12000 + base * 130000) * tierFactor * youthFactor * minutesFactor * jitter;
-  val = Math.max(9000, Math.min(160000, val));
-  return Math.round(val / 100) * 100;
+  let ga90, prog90, def90;
+  if (rates) {
+    ga90 = rates.gaPer90; prog90 = rates.progPer90; def90 = rates.defPer90;
+  } else {
+    ga90 = m90 ? (p.goals + p.assists) / m90 : 0;
+    prog90 = m90 ? (p.progPasses + p.progCarries) / m90 : 0;
+    def90 = m90 ? p.tklInt / m90 : 0;
+  }
+  const attW = p.position === "FW" ? 0.55 : p.position === "MF" ? 0.4 : 0.25;
+  const progW = p.position === "MF" ? 0.4 : 0.33;
+  const defW = p.position === "DF" ? 0.45 : 0.27;
+  const r = refs || DEFAULT_POS_REFS[p.position] || DEFAULT_POS_REFS.MF;
+  return attW * clamp01(ga90 / r.ga)
+       + progW * clamp01(prog90 / r.prog)
+       + defW * clamp01(def90 / r.def);
+}
+
+function roundValue(val) {
+  if (val < 250000) return Math.round(val / 100) * 100;
+  if (val < 1000000) return Math.round(val / 1000) * 1000;
+  return Math.round(val / 10000) * 10000;
+}
+
+/* Log-scale: a reference-quality player at peak age in a tier-2 league with a
+   full season of minutes lands on VALUE_MEDIAN, and every factor moves that
+   multiplicatively. The old engine was a linear ramp hard-clamped to 9k-160k
+   with a random jitter term that added +-10% of pure noise to a number users
+   read as an estimate; both are gone. */
+function estimateMarketValue(p, rates, refs) {
+  const minutes = p.minutes || 1;
+  const base = qualityComposite(p, rates, refs);
+  const ls = leagueStrength(p);
+  const ageF = ageValueFactor(p.age);
+  const minutesF = MINUTES_FACTOR_FLOOR + (1.0 - MINUTES_FACTOR_FLOOR) * clamp01(minutes / MINUTES_REF);
+  let val = VALUE_MEDIAN
+          * Math.exp(VALUE_SPREAD * (base - VALUE_BASE_REF))
+          * ls * ageF * minutesF;
+  val = Math.max(VALUE_FLOOR, Math.min(VALUE_CEIL, val));
+  return roundValue(val);
 }
 
 /* ---------------------------------------------------------------------
    Market value history + a live line chart. Builds a deterministic
-   ~15-month value history for a player (seeded by name so it's stable),
-   trending toward their current value with volatility, and a drift shaped
-   by their Undervalued Score and age (undervalued + young -> rising line).
+   ~15-month value history for a player trending toward their current value,
+   with the slope shaped by their Undervalued Score and age (undervalued +
+   young -> rising line). Earlier versions added seeded random noise to every
+   point; that noise was demo scaffolding -- it looked like market volatility
+   but carried no information, and users read it as real month-to-month
+   movement. The line is now a smooth geometric trajectory.
    The last point is "now"; the dataset refreshes weekly, so the latest
    point moves each refresh -- hence the live indicator on the chart.
 --------------------------------------------------------------------- */
 function marketHistory(p, currentValue) {
-  const rng = mulberry32(hashSeed(p.name + "|mvhist"));
   const N = 15;
+  if (!currentValue || currentValue <= 0) return new Array(N).fill(0);
   // Direction: undervalued & young trend up into the current value (so the
   // history started lower); overvalued/older trend flatter or down.
   const uv = typeof p.undervaluedScore === "number" ? p.undervaluedScore : 0;
@@ -1784,13 +1981,12 @@ function marketHistory(p, currentValue) {
   const trend = (uv / 100) * 0.6 + youth * 0.03; // total fractional rise over the window
   const startFrac = Math.max(0.45, Math.min(1.1, 1 - trend));
   const startValue = Math.max(6000, currentValue * startFrac);
+  const ratio = currentValue / startValue;
   const points = [];
   for (let i = 0; i < N; i++) {
     const t = i / (N - 1);
-    const smooth = startValue + (currentValue - startValue) * t;
-    const noise = (rng() - 0.5) * currentValue * 0.10;
-    let v = Math.max(4000, smooth + noise);
-    points.push(v);
+    const ease = t * t * (3 - 2 * t); // smoothstep: flat start, flat finish
+    points.push(startValue * Math.pow(ratio, ease));
   }
   points[N - 1] = currentValue; // anchor the latest point to the shown value
   return points;
@@ -1844,6 +2040,64 @@ function fitBreakdown(p) {
   ];
 }
 
+/* ---------------------------------------------------------------------
+   Explainability -- why this player carries the flag they carry. Turns the
+   scoring internals into an inspectable object plus a one-line summary, so a
+   flag is never an unexplained verdict.
+--------------------------------------------------------------------- */
+function buildExplain(p) {
+  const outPct = Math.round(p.performancePct * 100);
+  const valPct = Math.round(p.marketPct * 100);
+  const parts = [
+    ordinal(outPct) + " pct output",
+    ordinal(valPct) + " pct value",
+    "age " + p.age,
+    groupThousands(p.minutes) + " mins",
+  ];
+  if (p.lowSample) parts.push("low sample");
+  if (p.marketValueEstimated) parts.push("value estimated");
+
+  const summary = (p.flag ? "Flagged because: " : "Not flagged: ") + parts.join(", ") + ".";
+
+  const drivers = [
+    {key: "performancePct", label: "Output percentile", value: p.performancePct, pct: outPct},
+    {key: "marketPct", label: "Value percentile", value: p.marketPct, pct: valPct},
+    {key: "gaPct", label: p.position !== "GK" ? "Attacking output" : "Shot-stopping",
+     value: p.gaPct, pct: Math.round(p.gaPct * 100)},
+    {key: "progPct", label: p.position !== "GK" ? "Progression" : "Distribution",
+     value: p.progPct, pct: Math.round(p.progPct * 100)},
+    {key: "defPct", label: p.position !== "GK" ? "Defensive actions" : "Sweeper activity",
+     value: p.defPct, pct: Math.round(p.defPct * 100)},
+    {key: "youthPct", label: "Youth", value: p.youthPct, pct: Math.round(p.youthPct * 100)},
+  ];
+
+  const notes = [];
+  if (p.lowSample) {
+    notes.push("Only " + groupThousands(p.minutes) + " minutes (" + LOW_SAMPLE_MINUTES +
+      " needed): rates are heavily regressed to the position average and this player cannot be rated High Priority.");
+  }
+  if (p.marketValueEstimated) {
+    notes.push("No market value on record -- the value percentile uses the model's estimate, " +
+      "so the undervalued gap is more tentative than for a player with a known value.");
+  }
+  if (p.shrinkWeight < 0.75) {
+    notes.push(Math.round(p.shrinkWeight * 100) + "% of this player's own per-90 rates survive shrinkage; " +
+      "the rest is the position-group average.");
+  }
+
+  return {
+    summary: summary,
+    performancePct: p.performancePct,
+    marketPct: p.marketPct,
+    undervaluedScore: p.undervaluedScore,
+    gaPct: p.gaPct, progPct: p.progPct, defPct: p.defPct, youthPct: p.youthPct,
+    age: p.age, ageBand: ageBand(p.age), ageValueFactor: p.ageValueFactor,
+    minutes: p.minutes, lowSample: p.lowSample, shrinkWeight: p.shrinkWeight,
+    leagueStrength: p.leagueStrength, marketValueEstimated: p.marketValueEstimated,
+    drivers: drivers, notes: notes,
+  };
+}
+
 function computeScores(players, w) {
   const total = w.ga + w.prog + w.def + w.age;
   const norm = total > 0 ? {
@@ -1874,61 +2128,127 @@ function computeScores(players, w) {
       tklIntPer90: m90 ? p.tklInt / m90 : 0,
       gaShare: (p.goals + p.assists) > 0 ? p.goals / (p.goals + p.assists) : 0,
     };
-    const est = estimateMarketValue(p);
-    const known = p.marketValue && p.marketValue > 0;
     return {
       ...p,
       ...derived,
-      gaPer90: isGK
+      rawGaPer90: isGK
         ? (p.minutes ? (p.saves - 1.5 * p.goalsConceded) / p.minutes * 90 : 0)
         : (p.minutes ? (p.goals + p.assists) / p.minutes * 90 : 0),
-      progPer90: isGK
+      rawProgPer90: isGK
         ? (p.passCompletionPct || 0)
         : (p.minutes ? (p.progPasses + p.progCarries) / p.minutes * 90 : 0),
-      defPer90: isGK
+      rawDefPer90: isGK
         ? (p.minutes ? (p.sweeperActions || 0) / p.minutes * 90 : 0)
         : (p.minutes ? p.tklInt / p.minutes * 90 : 0),
-      // Estimated value engine: when a real market value isn't on record
-      // (marketValue is 0), the engine produces an estimate from the player's
-      // stats, tier, position, and age so the app can still show a value. The
-      // Undervalued Score still uses the raw (known) marketValue, so estimates
-      // are shown for information only and never silently change the scoring.
-      estimatedMarketValue: est,
-      displayMarketValue: known ? p.marketValue : est,
-      marketValueEstimated: !known,
     };
   });
 
   const byPos = {};
   withRates.forEach(p => { (byPos[p.position] ||= []).push(p); });
 
+  // ---- pass 2: position-group minutes-weighted means ----------------------
+  const posMeans = {};
+  Object.keys(byPos).forEach(pos => {
+    const peers = byPos[pos];
+    const m = {
+      ga: weightedMean(peers.map(x => [x.rawGaPer90, x.minutes])),
+      prog: weightedMean(peers.map(x => [x.rawProgPer90, x.minutes])),
+      def: weightedMean(peers.map(x => [x.rawDefPer90, x.minutes])),
+      savePct: weightedMean(peers.map(x => [x.savePct || 0, x.minutes])),
+      gc: weightedMean(peers.map(x => [x.gcPer90 || 0, x.minutes])),
+      cs: weightedMean(peers.map(x => [x.csRate || 0, x.minutes])),
+    };
+    // Position-relative reference points for the value composite.
+    m.refs = {ga: m.ga * POS_REF_MULT, prog: m.prog * POS_REF_MULT, def: m.def * POS_REF_MULT};
+    posMeans[pos] = m;
+  });
+
+  // ---- pass 3: shrink rates, then value the player ------------------------
   withRates.forEach(p => {
-    const peers = byPos[p.position];
-    p.gaPct = percentileRank(peers.map(x => x.gaPer90), p.gaPer90);
-    p.progPct = percentileRank(peers.map(x => x.progPer90), p.progPer90);
-    p.defPct = percentileRank(peers.map(x => x.defPer90), p.defPer90);
-    p.youthPct = percentileRank(peers.map(x => -x.age), -p.age);
-    p.tierMult = TIER_MULT[p.tier] ?? 1;
-    p.performanceScore = (p.gaPct*norm.ga + p.progPct*norm.prog + p.defPct*norm.def + p.youthPct*norm.age) * p.tierMult;
+    const pm = posMeans[p.position];
+    const mins = p.minutes;
+    p.gaPer90 = shrinkRate(p.rawGaPer90, mins, pm.ga);
+    p.progPer90 = shrinkRate(p.rawProgPer90, mins, pm.prog);
+    p.defPer90 = shrinkRate(p.rawDefPer90, mins, pm.def);
+    p.shrinkWeight = shrinkWeight(mins);
+    p.lowSample = mins < LOW_SAMPLE_MINUTES;
+    p.leagueStrength = leagueStrength(p);
+    p.ageValueFactor = ageValueFactor(p.age);
+
+    const rates = p.position === "GK" ? {
+      savePct: shrinkRate(p.savePct, mins, pm.savePct),
+      gcPer90: shrinkRate(p.gcPer90, mins, pm.gc),
+      csRate: shrinkRate(p.csRate, mins, pm.cs),
+    } : {
+      gaPer90: p.gaPer90, progPer90: p.progPer90, defPer90: p.defPer90,
+    };
+    p.qualityComposite = qualityComposite(p, rates, pm.refs);
+    const est = estimateMarketValue(p, rates, pm.refs);
+    const known = p.marketValue && p.marketValue > 0;
+    p.estimatedMarketValue = est;
+    p.displayMarketValue = known ? p.marketValue : est;
+    p.marketValueEstimated = !known;
+  });
+
+  // ---- pass 4: percentiles + composite ------------------------------------
+  const rankByPos = {};
+  Object.keys(byPos).forEach(pos => {
+    const peers = byPos[pos];
+    rankByPos[pos] = {
+      ga: percentileRanker(peers.map(x => x.gaPer90)),
+      prog: percentileRanker(peers.map(x => x.progPer90)),
+      def: percentileRanker(peers.map(x => x.defPer90)),
+      youth: percentileRanker(peers.map(x => -x.age)),
+    };
+  });
+
+  withRates.forEach(p => {
+    const rk = rankByPos[p.position];
+    p.gaPct = rk.ga(p.gaPer90);
+    p.progPct = rk.prog(p.progPer90);
+    p.defPct = rk.def(p.defPer90);
+    p.youthPct = rk.youth(-p.age);
+    // tierMult kept as an alias so existing consumers keep working; it is now
+    // the continuous league-strength coefficient, not a 3-way bucket.
+    p.tierMult = p.leagueStrength;
+    p.performanceScore = (p.gaPct*norm.ga + p.progPct*norm.prog + p.defPct*norm.def + p.youthPct*norm.age) * p.leagueStrength;
     p.passCarryRatio = (p.progPasses + p.progCarries) ? p.progPasses / (p.progPasses + p.progCarries) : 0;
     const fit = classifySystem(p);
     p.systemFit = fit.label;
     p.systemNote = fit.note;
   });
 
+  // ---- pass 5: undervalued gap, flags, explainability ---------------------
+  const finalByPos = {};
+  Object.keys(byPos).forEach(pos => {
+    const peers = byPos[pos];
+    finalByPos[pos] = {
+      perf: percentileRanker(peers.map(x => x.performanceScore)),
+      value: percentileRanker(peers.map(x => x.displayMarketValue)),
+    };
+  });
+
   withRates.forEach(p => {
-    const peers = byPos[p.position];
-    p.performancePct = percentileRank(peers.map(x => x.performanceScore), p.performanceScore);
-    p.marketPct = percentileRank(peers.map(x => x.marketValue), p.marketValue);
+    const rk = finalByPos[p.position];
+    p.performancePct = rk.perf(p.performanceScore);
+    // displayMarketValue, NOT the raw marketValue: ranking on the raw field
+    // sorted every unknown-value player (marketValue = 0) to the bottom of the
+    // value distribution, handing them a near-maximal undervalued gap and
+    // flooding the High Priority list with players whose only distinguishing
+    // feature was missing data.
+    p.marketPct = rk.value(p.displayMarketValue);
     p.undervaluedScore = (p.performancePct - p.marketPct) * 100;
 
-    if (p.undervaluedScore >= HP_THRESHOLD) {
-      p.flag = p.hasAgent === "No" ? "High Priority - Unrepresented" : "High Priority";
-    } else if (p.undervaluedScore >= WL_THRESHOLD) {
-      p.flag = p.hasAgent === "No" ? "Watchlist - Unrepresented" : "Watchlist";
+    const unrep = p.hasAgent === "No";
+    if (p.undervaluedScore >= HP_THRESHOLD && !p.lowSample) {
+      p.flag = unrep ? "High Priority - Unrepresented" : "High Priority";
+    } else if (p.undervaluedScore >= WL_THRESHOLD || (p.undervaluedScore >= HP_THRESHOLD && p.lowSample)) {
+      p.flag = unrep ? "Watchlist - Unrepresented" : "Watchlist";
     } else {
       p.flag = "";
     }
+
+    p.explain = buildExplain(p);
   });
 
   return withRates;
@@ -2546,7 +2866,7 @@ function openModal(p) {
       <div class="calc-contribrow">
         <span class="calc-chip">Weighted sum <b>${weightedSum.toFixed(3)}</b></span>
         <span>&times;</span>
-        <span class="calc-chip">Tier ${p.tier} multiplier <b>${p.tierMult.toFixed(2)}</b></span>
+        <span class="calc-chip">League strength (tier ${p.tier}) <b>${p.leagueStrength.toFixed(3)}</b></span>
         <span>=</span>
         <span class="calc-chip">Performance <b>${(p.performancePct * 100).toFixed(0)}th pct</b></span>
       </div>
@@ -2555,13 +2875,33 @@ function openModal(p) {
         <span class="cf-result ${uvPos ? 'cf-pos' : 'cf-neg'}">${uvPos ? '+' : ''}${p.undervaluedScore.toFixed(1)}</span>
         <span class="cf-lbl">Undervalued Score${p.flag ? ' &middot; ' + p.flag : ''}</span>
       </div>
-      <div class="calc-note">A positive score means the player performs better than the market currently values them${p.marketValueEstimated ? ". No market value is on record here, so the market percentile uses the raw 0 (never the display estimate) -- estimates can never inflate the score." : "."}</div>
+      <div class="calc-note">A positive score means the player performs better than the market currently values them${p.marketValueEstimated ? ". No market value is on record here, so the market percentile uses the model's estimate. Ranking the raw 0 instead would place every unknown-value player at the bottom of the market and hand them an artificially high score." : "."}</div>
     </div>`;
+
+  // Explainability: the one-line "why" plus every caveat the model knows about,
+  // so a flag is never an unexplained verdict.
+  const ex = p.explain;
+  const exNotesHtml = ex && ex.notes.length
+    ? `<ul class="ex-notes">${ex.notes.map(n => `<li>${n}</li>`).join("")}</ul>`
+    : "";
+  const explainHtml = ex ? `
+    <div class="ex-box">
+      <div class="ex-summary">${ex.summary}</div>
+      <div class="ex-chips">
+        <span class="ex-chip">Output <b>${ex.drivers[0].pct}th</b></span>
+        <span class="ex-chip">Value <b>${ex.drivers[1].pct}th</b></span>
+        <span class="ex-chip">Age <b>${ex.age}</b> <span class="ex-dim">${ex.ageBand}</span></span>
+        <span class="ex-chip${ex.lowSample ? ' ex-warn' : ''}">Minutes <b>${groupThousands(ex.minutes)}</b>${ex.lowSample ? ' <span class="ex-dim">low sample</span>' : ''}</span>
+        <span class="ex-chip">League strength <b>${ex.leagueStrength.toFixed(3)}</b></span>
+      </div>
+      ${exNotesHtml}
+    </div>` : "";
 
   document.getElementById("m-explain").innerHTML = `
     <b>Undervalued Score: ${p.undervaluedScore.toFixed(1)}</b> -- this player ${gapDesc}
     within their position group. ${p.flag ? `Flagged as <b>${p.flag}</b>.` : "Not currently flagged at the selected thresholds."}
     ${p.hasAgent === "No" ? " No agent on record -- see the Contact &amp; Verification section below before reaching out." : ""}
+    ${explainHtml}
     ${transparencyHtml}
   `;
 
