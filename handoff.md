@@ -17,6 +17,18 @@ Unknown-value share of High Priority went 58% -> 8% (roster baseline 25%).
 If the roster changes, re-tune VALUE_BASE_REF and refresh DEFAULT_POS_REFS
 (bisect until median(estimate)==79000); everything else self-adjusts.
 
+## QUEUED — Acquirability Score + Deal Score (DESIGN DONE, implement next)
+
+User approved adding an Acquirability Score (contract window x representation x fee
+feasibility x league friction) and a combined Deal Score call-list metric. The full
+committed design — constants, exact formulas, worked examples to verify against, explain
+templates, and an implementation checklist — is in **acquirability_spec.md** at the repo
+root. Design was authored by a Fable subagent at the user's request; implementation must
+go through the same bit-exact Python/JS/SQL parity discipline as the scoring rework
+(harness: scratchpad extract_js.py / run_js.js — recreate if scratchpad is gone).
+Implement FIRST, before the roster expansion below (the spec's fee anchors assume the
+current value distribution; roster change forces recalibration anyway).
+
 ## QUEUED (new request, not started) — Central European roster coverage
 
 User: *"I want my app to be a lot more central european players not just from the balkans."*
