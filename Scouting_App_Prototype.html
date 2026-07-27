@@ -738,6 +738,9 @@
   .ex-notes li { font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-bottom: 3px; }
   .low-sample-badge { font-size: 9.5px; padding: 1px 5px; border-radius: 4px; margin-left: 5px;
                       background: rgba(239,106,99,0.18); color: var(--danger); white-space: nowrap; }
+  .ex-box.deal-hot { border-left-color: #e8843a; }
+  .ex-drivers { margin-top: 8px; }
+  .ex-driver-line { font-size: 10.5px; color: var(--muted); line-height: 1.5; }
 
   /* Keyboard focus */
   tbody tr.kb-focused { background: var(--card-alt); outline: 2px solid var(--navy-light); outline-offset: -2px; }
@@ -1324,6 +1327,20 @@ const MINUTES_REF = 2200.0, MINUTES_FACTOR_FLOOR = 0.85;
    distribution were 100% clamped, so those terms carried no information at
    all. A player at POS_REF_MULT times their group's minutes-weighted mean now
    scores a full 1.0 on that term. */
+/* Acquirability + Deal Score (see acquirability_spec.md). Deterministic
+   per-row math only; every constant mirrored exactly in scoring.py. */
+const SEASON_YEAR = 2026;
+const CONTRACT_URGENCY = {0: 1.00, 1: 0.75, 2: 0.35, 3: 0.15};
+const CONTRACT_URGENCY_NULL = 0.35;
+const RESIGN_AGE_LO = 20.0, RESIGN_AGE_SPAN = 3.0, RESIGN_FLOOR = 0.75;
+const REP_NO = 1.00, REP_UNKNOWN = 0.70, REP_YES = 0.35;
+const FEE_REF = 10000.0, FEE_EXP = 0.35;
+const LS_MAX = 1.000, LS_SPAN = 0.267, LEAGUE_MULT_FLOOR = 0.85;
+const MINOR_GATE = 0.40;
+const W_CONTRACT = 0.45, W_REP = 0.30, W_FEE = 0.25;
+const DEAL_EXP_UV = 0.60, DEAL_EXP_ACQ = 0.40;
+const HOT_DEAL_THRESHOLD = 55;
+
 const POS_REF_MULT = 1.8;
 const DEFAULT_POS_REFS = {
   FW: {ga: 1.7064, prog: 11.6933, def: 0.9194},
@@ -2098,6 +2115,104 @@ function buildExplain(p) {
   };
 }
 
+/* Acquirability 0-100: contract window x representation x fee feasibility,
+   with league-friction and minor-transfer multipliers. Multiplicative because
+   real-world blockers compound. Mirrored exactly in scoring.py. */
+function acquirability(p) {
+  const ce = p.contractExpires;
+  let yrs, c;
+  if (ce === null || ce === undefined) {
+    yrs = null; c = CONTRACT_URGENCY_NULL;
+  } else {
+    yrs = Math.min(3, Math.max(0, Math.trunc(ce) - SEASON_YEAR));
+    c = CONTRACT_URGENCY[yrs];
+  }
+  const r = RESIGN_FLOOR + (1.0 - RESIGN_FLOOR) * clamp01((p.age - RESIGN_AGE_LO) / RESIGN_AGE_SPAN);
+  const contractComp = c * r;
+  const rep = p.hasAgent === "No" ? REP_NO : p.hasAgent === "Yes" ? REP_YES : REP_UNKNOWN;
+  const vEff = Math.max(p.displayMarketValue || 79000.0, FEE_REF);
+  const fee = Math.pow(FEE_REF / vEff, FEE_EXP);
+  const invLS = clamp01((LS_MAX - p.leagueStrength) / LS_SPAN);
+  const lmult = LEAGUE_MULT_FLOOR + (1.0 - LEAGUE_MULT_FLOOR) * invLS;
+  const minor = p.age < 18 ? MINOR_GATE : 1.0;
+  const score = 100.0 * Math.pow(contractComp, W_CONTRACT) * Math.pow(rep, W_REP)
+              * Math.pow(fee, W_FEE) * lmult * minor;
+  return {score: score, yearsRemaining: yrs, contractComp: contractComp,
+          repComp: rep, feeComp: fee, leagueFriction: lmult, minorGate: minor};
+}
+
+/* 0-100. uv <= 0 -> exactly 0: an overvalued player is never a deal. */
+function dealScoreOf(uv, acq) {
+  const u = Math.max(0.0, uv) / 100.0;
+  return 100.0 * Math.pow(u, DEAL_EXP_UV) * Math.pow(acq / 100.0, DEAL_EXP_ACQ);
+}
+
+function fmtSigned(x) {
+  const n = Math.round(x);
+  return (n >= 0 ? "+" : "") + n;
+}
+
+/* Why this Deal Score -- drivers, phrases, and caveats. Mirrored in Python. */
+function buildDealExplain(p, a) {
+  const uv = p.undervaluedScore, acq = p.acquirabilityScore, deal = p.dealScore;
+  const yrs = a.yearsRemaining;
+
+  const uvPhrase = uv >= 40 ? "strongly undervalued" : uv >= 20 ? "undervalued"
+                 : uv > 0 ? "mildly undervalued" : "not undervalued";
+  const acqPhrase = acq >= 70 ? "highly gettable" : acq >= 45 ? "gettable"
+                  : acq >= 25 ? "hard to get" : "locked away";
+
+  const parts = [];
+  if (yrs === 0) parts.push("contract expires this window");
+  else if (yrs === 1) parts.push("final contract year");
+  if (p.hasAgent === "No") parts.push("unrepresented");
+  if (a.feeComp >= 0.65) parts.push("modest fee");
+  const topDriver = parts.length ? parts.join(", ") : "no dominant access driver";
+
+  let summary;
+  if (uv <= 0) {
+    summary = "Deal 0: not undervalued (UV " + fmtSigned(uv)
+            + ") -- excluded from call list regardless of acquirability.";
+  } else {
+    summary = "Deal " + Math.round(deal) + ": " + uvPhrase + " (UV " + fmtSigned(uv)
+            + ") x " + acqPhrase + " (" + Math.round(acq) + "/100) -- " + topDriver + ".";
+  }
+
+  const ce = p.contractExpires;
+  let contractTxt;
+  if (yrs === null) contractTxt = "Contract year unknown -- assumed two years remaining";
+  else if (yrs === 0) contractTxt = "Contract expires this window (" + ce + ") -- free-transfer territory";
+  else if (yrs === 1) contractTxt = "Final contract year (expires " + ce + ") -- selling club under pressure";
+  else if (yrs === 2) contractTxt = "Two years remaining (" + ce + ") -- club holds leverage";
+  else contractTxt = "Under contract to " + ce + " -- locked down";
+
+  const repTxt = p.hasAgent === "No" ? "Unrepresented -- direct club/federation route"
+               : p.hasAgent === "Yes" ? "Agented -- approach runs through representation"
+               : "Representation unknown -- likely approachable at this level";
+  const feeBand = a.feeComp >= 0.65 ? "high" : a.feeComp >= 0.40 ? "moderate" : "low";
+  const feeTxt = "Est. fee EUR " + groupThousands(p.displayMarketValue) + " -- " + feeBand + " feasibility";
+  const invLS = clamp01((LS_MAX - p.leagueStrength) / LS_SPAN);
+  const levBand = invLS >= 0.67 ? "little" : invLS >= 0.33 ? "moderate" : "strong";
+  const leagueTxt = "Tier " + p.tier + " seller -- " + levBand + " holding leverage";
+
+  const drivers = [
+    {key: "contractComp", label: "Contract window", value: a.contractComp, text: contractTxt},
+    {key: "repComp", label: "Representation", value: a.repComp, text: repTxt},
+    {key: "feeComp", label: "Fee feasibility", value: a.feeComp, text: feeTxt},
+    {key: "leagueFriction", label: "League friction", value: a.leagueFriction, text: leagueTxt},
+  ];
+
+  const notes = [];
+  if (p.age <= 20 && yrs !== null && yrs <= 1) notes.push("Age " + p.age + ": club likely to fight re-signing");
+  if (p.age < 18) notes.push("Under 18 -- international transfer barred (FIFA Art. 19); domestic route only");
+  if (yrs === null) notes.push("Contract year unknown -- assumed two years remaining");
+  if (p.lowSample) notes.push("Low sample (" + groupThousands(p.minutes) + " mins): blocked from the call list");
+  if (p.marketValueEstimated) notes.push("Fee based on the model's value estimate, not a recorded market value");
+
+  return {summary: summary, uvPhrase: uvPhrase, acqPhrase: acqPhrase,
+          topDriver: topDriver, drivers: drivers, notes: notes};
+}
+
 function computeScores(players, w) {
   const total = w.ga + w.prog + w.def + w.age;
   const norm = total > 0 ? {
@@ -2249,6 +2364,15 @@ function computeScores(players, w) {
     }
 
     p.explain = buildExplain(p);
+
+    // Acquirability + Deal Score (needs displayMarketValue, leagueStrength,
+    // and undervaluedScore, so it lives at the end of pass 5).
+    const a = acquirability(p);
+    p.acquirabilityScore = a.score;
+    p.dealScore = dealScoreOf(p.undervaluedScore, a.score);
+    p.hotProspect = p.dealScore >= HOT_DEAL_THRESHOLD && !p.lowSample;
+    p.contractYearsRemaining = a.yearsRemaining;
+    p.dealExplain = buildDealExplain(p, a);
   });
 
   return withRates;
@@ -2897,11 +3021,29 @@ function openModal(p) {
       ${exNotesHtml}
     </div>` : "";
 
+  // Deal Score box: undervaluation x acquirability, with the access drivers.
+  const dx = p.dealExplain;
+  const dealNotesHtml = dx && dx.notes.length
+    ? `<ul class="ex-notes">${dx.notes.map(n => `<li>${n}</li>`).join("")}</ul>`
+    : "";
+  const dealHtml = dx ? `
+    <div class="ex-box${p.hotProspect ? ' deal-hot' : ''}">
+      <div class="ex-summary">${p.hotProspect ? '&#128293; Hot Prospect &middot; ' : ''}${dx.summary}</div>
+      <div class="ex-chips">
+        <span class="ex-chip">Deal <b>${Math.round(p.dealScore)}</b></span>
+        <span class="ex-chip">Acquirability <b>${Math.round(p.acquirabilityScore)}</b>/100</span>
+        ${dx.drivers.map(d => `<span class="ex-chip" title="${d.text}">${d.label} <b>${d.value.toFixed(2)}</b></span>`).join("")}
+      </div>
+      <div class="ex-drivers">${dx.drivers.map(d => `<div class="ex-driver-line">${d.text}</div>`).join("")}</div>
+      ${dealNotesHtml}
+    </div>` : "";
+
   document.getElementById("m-explain").innerHTML = `
     <b>Undervalued Score: ${p.undervaluedScore.toFixed(1)}</b> -- this player ${gapDesc}
     within their position group. ${p.flag ? `Flagged as <b>${p.flag}</b>.` : "Not currently flagged at the selected thresholds."}
     ${p.hasAgent === "No" ? " No agent on record -- see the Contact &amp; Verification section below before reaching out." : ""}
     ${explainHtml}
+    ${dealHtml}
     ${transparencyHtml}
   `;
 

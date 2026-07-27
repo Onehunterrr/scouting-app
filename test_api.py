@@ -408,3 +408,39 @@ def test_admin_add_player_is_gated():
     pid = r.json()["id"]
     got = client.get(f"/api/players/{pid}", headers=AUTH).json()
     assert got["name"] == "Pytest Player" and got["hasAgent"] == "No"
+
+
+# ---------------------------------------------------------------------------
+# Acquirability / Deal Score: pin the worked examples from acquirability_spec.md
+# ---------------------------------------------------------------------------
+def test_acquirability_spec_examples():
+    import scoring
+
+    def mk(age, agent, ce, val, uv, tier):
+        return {"age": age, "hasAgent": agent, "contractExpires": ce,
+                "displayMarketValue": val, "undervaluedScore": uv, "tier": tier,
+                "leagueStrength": math.exp(-0.155 * (tier - 2)),
+                "lowSample": False, "marketValueEstimated": False, "minutes": 2000}
+
+    a = scoring.acquirability(mk(20, "No", 2026, 25000, 55, 3))
+    assert a["score"] == pytest.approx(75.5, abs=0.2)
+    assert scoring.deal_score(55, a["score"]) == pytest.approx(62.4, abs=0.2)
+
+    b = scoring.acquirability(mk(24, "Yes", 2029, 140000, 10, 2))
+    assert b["score"] == pytest.approx(21.0, abs=0.2)
+    assert scoring.deal_score(10, b["score"]) == pytest.approx(13.4, abs=0.2)
+
+    c = scoring.acquirability(mk(19, "Unknown", 2027, 80000, -20, 2))
+    assert c["score"] == pytest.approx(49.1, abs=0.2)
+    assert scoring.deal_score(-20, c["score"]) == 0.0  # overvalued is never a deal
+
+
+def test_deal_fields_in_api():
+    p = authed_get("/api/players/1").json()
+    for key in ("acquirabilityScore", "dealScore", "hotProspect", "dealExplain"):
+        assert key in p
+    assert 0 <= p["dealScore"] <= 100
+    d = authed_get("/api/players", sort="dealScore", dir="desc", pageSize=50).json()
+    scores = [x["dealScore"] for x in d["items"]]
+    assert scores == sorted(scores, reverse=True)
+    assert scores[0] > 55  # the call list's top end exists

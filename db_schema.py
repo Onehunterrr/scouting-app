@@ -221,10 +221,41 @@ final AS (
   SELECT *,
     CUME_DIST() OVER (PARTITION BY position ORDER BY performance_score) AS performance_pct
   FROM perf
+),
+-- Acquirability (see acquirability_spec.md): contract window x representation x
+-- fee feasibility, with league-friction and minor-transfer multipliers.
+acq AS (
+  SELECT *,
+    100.0
+    * pow(
+        (CASE
+           WHEN contract_expires IS NULL THEN 0.35
+           WHEN MIN(3, MAX(0, contract_expires - 2026)) = 0 THEN 1.00
+           WHEN MIN(3, MAX(0, contract_expires - 2026)) = 1 THEN 0.75
+           WHEN MIN(3, MAX(0, contract_expires - 2026)) = 2 THEN 0.35
+           ELSE 0.15 END)
+        * (0.75 + 0.25 * MIN(1.0, MAX(0.0, (age - 20.0) / 3.0))),
+        0.45)
+    * pow(CASE has_agent WHEN 'No' THEN 1.00 WHEN 'Yes' THEN 0.35 ELSE 0.70 END, 0.30)
+    * pow(pow(10000.0 / MAX(display_market_value, 10000.0), 0.35), 0.25)
+    * (0.85 + 0.15 * MIN(1.0, MAX(0.0, (1.000 - league_strength) / 0.267)))
+    * (CASE WHEN age < 18 THEN 0.40 ELSE 1.0 END)
+    AS acquirability_score
+  FROM final
+),
+deal AS (
+  SELECT *,
+    -- uv <= 0 -> deal = 0 exactly: an overvalued player is never a deal.
+    100.0 * pow(MAX(0.0, performance_pct - market_pct), 0.60)
+          * pow(acquirability_score / 100.0, 0.40) AS deal_score
+  FROM acq
 )
 SELECT
   id, name, country, position, tier, age, has_agent, market_value, minutes,
   low_sample,
+  ROUND(acquirability_score, 1) AS acquirability_score,
+  ROUND(deal_score, 1) AS deal_score,
+  deal_score >= 55 AND NOT low_sample AS hot_prospect,
   ROUND(league_strength, 4) AS league_strength,
   estimated_market_value,
   display_market_value,
@@ -244,5 +275,5 @@ SELECT
           OR ((performance_pct - market_pct) * 100 >= 40 AND low_sample)) THEN 'Watchlist'
     ELSE ''
   END AS flag
-FROM final;
+FROM deal;
 """

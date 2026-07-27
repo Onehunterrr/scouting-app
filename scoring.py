@@ -141,6 +141,28 @@ MINUTES_REF = 2200.0
 MINUTES_FACTOR_FLOOR = 0.85
 
 # ---------------------------------------------------------------------------
+# Acquirability + Deal Score (see acquirability_spec.md for full rationale).
+# "How gettable is this player right now?" crossed with the undervalued gap.
+# Deterministic per-row math only (no clock, no cohort iteration) so the JS and
+# SQL copies stay bit-identical.
+# ---------------------------------------------------------------------------
+SEASON_YEAR = 2026            # "now" for contract math; a constant, never a clock call
+CONTRACT_URGENCY = {0: 1.00, 1: 0.75, 2: 0.35, 3: 0.15}
+CONTRACT_URGENCY_NULL = 0.35  # missing contract year -> assume mid-contract
+RESIGN_AGE_LO = 20.0          # at/below: clubs fight to re-sign expiring prospects
+RESIGN_AGE_SPAN = 3.0         # ramp 20 -> 23
+RESIGN_FLOOR = 0.75           # U20 contract-urgency haircut
+REP_NO, REP_UNKNOWN, REP_YES = 1.00, 0.70, 0.35
+FEE_REF = 10000.0             # dataset floor: a EUR 10k fee is petty cash -> feasibility 1.0
+FEE_EXP = 0.35                # each price doubling cuts feasibility ~21.5%
+LS_MAX, LS_SPAN = 1.000, 0.267
+LEAGUE_MULT_FLOOR = 0.85      # tier-2 seller leverage costs at most 15%
+MINOR_GATE = 0.40             # age<18: FIFA RSTP Art. 19 bars international transfers
+W_CONTRACT, W_REP, W_FEE = 0.45, 0.30, 0.25
+DEAL_EXP_UV, DEAL_EXP_ACQ = 0.60, 0.40
+HOT_DEAL_THRESHOLD = 55
+
+# ---------------------------------------------------------------------------
 # Quality-composite reference points.
 #
 # The old engine divided every per-90 rate by a single global constant
@@ -470,6 +492,117 @@ def classify_system(p):
     }
 
 
+def acquirability(p):
+    """Acquirability 0-100: contract window x representation x fee feasibility,
+    with league-friction and minor-transfer multipliers. Multiplicative
+    (weighted geometric mean) because real-world blockers compound: an agented
+    player with 3 years left is NOT 'somewhat acquirable'."""
+    ce = p.get("contractExpires")
+    if ce is None:
+        yrs = None
+        c = CONTRACT_URGENCY_NULL
+    else:
+        yrs = min(3, max(0, int(ce) - SEASON_YEAR))
+        c = CONTRACT_URGENCY[yrs]
+    r = RESIGN_FLOOR + (1.0 - RESIGN_FLOOR) * _clamp01((p["age"] - RESIGN_AGE_LO) / RESIGN_AGE_SPAN)
+    contract_comp = c * r
+    rep = REP_NO if p["hasAgent"] == "No" else REP_YES if p["hasAgent"] == "Yes" else REP_UNKNOWN
+    v_eff = max(p.get("displayMarketValue") or 79000.0, FEE_REF)
+    fee = math.pow(FEE_REF / v_eff, FEE_EXP)
+    inv_ls = _clamp01((LS_MAX - p["leagueStrength"]) / LS_SPAN)
+    lmult = LEAGUE_MULT_FLOOR + (1.0 - LEAGUE_MULT_FLOOR) * inv_ls
+    minor = MINOR_GATE if p["age"] < 18 else 1.0
+    score = (100.0 * math.pow(contract_comp, W_CONTRACT) * math.pow(rep, W_REP)
+             * math.pow(fee, W_FEE) * lmult * minor)
+    return {"score": score, "yearsRemaining": yrs, "contractComp": contract_comp,
+            "repComp": rep, "feeComp": fee, "leagueFriction": lmult, "minorGate": minor}
+
+
+def deal_score(uv, acq):
+    """0-100. uv <= 0 -> exactly 0: an overvalued player is never a deal."""
+    u = max(0.0, uv) / 100.0
+    return 100.0 * math.pow(u, DEAL_EXP_UV) * math.pow(acq / 100.0, DEAL_EXP_ACQ)
+
+
+def _fmt_signed(x):
+    n = _js_round(x)
+    return ("+" if n >= 0 else "") + str(n)
+
+
+def build_deal_explain(p, a):
+    """Why this Deal Score -- drivers, phrases, and caveats. Mirrored in JS."""
+    uv = p["undervaluedScore"]
+    acq = p["acquirabilityScore"]
+    deal = p["dealScore"]
+    yrs = a["yearsRemaining"]
+
+    uv_phrase = ("strongly undervalued" if uv >= 40 else "undervalued" if uv >= 20
+                 else "mildly undervalued" if uv > 0 else "not undervalued")
+    acq_phrase = ("highly gettable" if acq >= 70 else "gettable" if acq >= 45
+                  else "hard to get" if acq >= 25 else "locked away")
+
+    parts = []
+    if yrs == 0:
+        parts.append("contract expires this window")
+    elif yrs == 1:
+        parts.append("final contract year")
+    if p["hasAgent"] == "No":
+        parts.append("unrepresented")
+    if a["feeComp"] >= 0.65:
+        parts.append("modest fee")
+    top_driver = ", ".join(parts) if parts else "no dominant access driver"
+
+    if uv <= 0:
+        summary = ("Deal 0: not undervalued (UV " + _fmt_signed(uv)
+                   + ") -- excluded from call list regardless of acquirability.")
+    else:
+        summary = ("Deal " + str(_js_round(deal)) + ": " + uv_phrase + " (UV " + _fmt_signed(uv)
+                   + ") x " + acq_phrase + " (" + str(_js_round(acq)) + "/100) -- " + top_driver + ".")
+
+    ce = p.get("contractExpires")
+    if yrs is None:
+        contract_txt = "Contract year unknown -- assumed two years remaining"
+    elif yrs == 0:
+        contract_txt = "Contract expires this window (" + str(ce) + ") -- free-transfer territory"
+    elif yrs == 1:
+        contract_txt = "Final contract year (expires " + str(ce) + ") -- selling club under pressure"
+    elif yrs == 2:
+        contract_txt = "Two years remaining (" + str(ce) + ") -- club holds leverage"
+    else:
+        contract_txt = "Under contract to " + str(ce) + " -- locked down"
+
+    rep_txt = ("Unrepresented -- direct club/federation route" if p["hasAgent"] == "No"
+               else "Agented -- approach runs through representation" if p["hasAgent"] == "Yes"
+               else "Representation unknown -- likely approachable at this level")
+    fee_band = "high" if a["feeComp"] >= 0.65 else "moderate" if a["feeComp"] >= 0.40 else "low"
+    fee_txt = "Est. fee EUR " + _group_thousands(p["displayMarketValue"]) + " -- " + fee_band + " feasibility"
+    inv_ls = _clamp01((LS_MAX - p["leagueStrength"]) / LS_SPAN)
+    lev_band = "little" if inv_ls >= 0.67 else "moderate" if inv_ls >= 0.33 else "strong"
+    league_txt = "Tier " + str(p["tier"]) + " seller -- " + lev_band + " holding leverage"
+
+    drivers = [
+        {"key": "contractComp", "label": "Contract window", "value": a["contractComp"], "text": contract_txt},
+        {"key": "repComp", "label": "Representation", "value": a["repComp"], "text": rep_txt},
+        {"key": "feeComp", "label": "Fee feasibility", "value": a["feeComp"], "text": fee_txt},
+        {"key": "leagueFriction", "label": "League friction", "value": a["leagueFriction"], "text": league_txt},
+    ]
+
+    notes = []
+    if p["age"] <= 20 and yrs is not None and yrs <= 1:
+        notes.append("Age " + str(p["age"]) + ": club likely to fight re-signing")
+    if p["age"] < 18:
+        notes.append("Under 18 -- international transfer barred (FIFA Art. 19); domestic route only")
+    if yrs is None:
+        notes.append("Contract year unknown -- assumed two years remaining")
+    if p["lowSample"]:
+        notes.append("Low sample (" + _group_thousands(p["minutes"]) + " mins): blocked from the call list")
+    if p["marketValueEstimated"]:
+        notes.append("Fee based on the model's value estimate, not a recorded market value")
+
+    return {"summary": summary, "uvPhrase": uv_phrase, "acqPhrase": acq_phrase,
+            "topDriver": top_driver, "drivers": drivers, "notes": notes}
+
+
 def build_explain(p):
     """Why this player carries the flag they carry.
 
@@ -697,5 +830,14 @@ def compute_scores(players, w=None):
             p["flag"] = ""
 
         p["explain"] = build_explain(p)
+
+        # Acquirability + Deal Score (needs displayMarketValue, leagueStrength,
+        # and undervaluedScore, so it lives at the end of pass 5).
+        a = acquirability(p)
+        p["acquirabilityScore"] = a["score"]
+        p["dealScore"] = deal_score(p["undervaluedScore"], a["score"])
+        p["hotProspect"] = bool(p["dealScore"] >= HOT_DEAL_THRESHOLD and not p["lowSample"])
+        p["contractYearsRemaining"] = a["yearsRemaining"]
+        p["dealExplain"] = build_deal_explain(p, a)
 
     return with_rates
