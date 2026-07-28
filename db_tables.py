@@ -47,6 +47,9 @@ users = Table(
     Column("is_pro", Integer, default=0),           # 1 = Pro subscriber
     Column("role", Text, default="user"),           # "user" | "admin"
     Column("stripe_customer_id", Text),             # Stripe customer, for webhook cancellations
+    Column("totp_secret", Text),                    # base32 TOTP secret (set at setup, live once enabled)
+    Column("totp_enabled", Integer, default=0),     # 1 = 2FA required at login
+    Column("backup_codes", Text),                   # JSON list of bcrypt-hashed single-use codes
 )
 
 # Scout Ledger: a user's dated prediction snapshots + their eventual outcome.

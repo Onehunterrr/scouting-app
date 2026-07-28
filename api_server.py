@@ -20,11 +20,18 @@ JWT_SECRET (dev default provided -- change it in production).
 """
 
 import os
+import io
+import json
+import base64
+import secrets
 import shutil
 import datetime
 import math
 
 import jwt
+import pyotp
+import qrcode
+import qrcode.image.svg
 from passlib.hash import bcrypt
 from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +53,8 @@ HTML_FILE = os.path.join(BASE_DIR, "Scouting_App_Prototype.html")
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me-in-prod")
 JWT_ALGO = "HS256"
 TOKEN_TTL_HOURS = int(os.environ.get("TOKEN_TTL_HOURS", "168"))
+MFA_CHALLENGE_TTL_MINUTES = 5
+MFA_ISSUER = os.environ.get("MFA_ISSUER", "ScoutEdge")
 
 MAX_PAGE_SIZE = 2000
 
@@ -114,7 +123,8 @@ def _ensure_user_columns(eng):
     SQLite and Postgres accept 'ADD COLUMN'; we swallow the 'already exists'
     error so this is safe to run on every startup."""
     from sqlalchemy import text
-    for coldef in ("is_pro INTEGER DEFAULT 0", "role TEXT DEFAULT 'user'", "stripe_customer_id TEXT"):
+    for coldef in ("is_pro INTEGER DEFAULT 0", "role TEXT DEFAULT 'user'", "stripe_customer_id TEXT",
+                   "totp_secret TEXT", "totp_enabled INTEGER DEFAULT 0", "backup_codes TEXT"):
         try:
             with eng.begin() as conn:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {coldef}"))
@@ -228,6 +238,20 @@ class Credentials(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class TotpCode(BaseModel):
+    code: str = Field(min_length=4, max_length=32)
+
+
+class TotpDisable(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=4, max_length=32)
+
+
+class MfaLogin(BaseModel):
+    mfaToken: str = Field(min_length=10, max_length=2000)
+    code: str = Field(min_length=4, max_length=32)
+
+
 class ShortlistBody(BaseModel):
     playerIds: list[int] = Field(max_length=1000)
 
@@ -282,6 +306,20 @@ def make_token(user_id, username):
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 
+def make_mfa_token(user_id, username):
+    """Short-lived challenge token issued after a correct password when 2FA is
+    on. scope='mfa' means current_user() refuses it, so it unlocks nothing but
+    the /api/auth/login/2fa step."""
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "scope": "mfa",
+        "exp": datetime.datetime.now(datetime.timezone.utc)
+               + datetime.timedelta(minutes=MFA_CHALLENGE_TTL_MINUTES),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+
+
 def current_user(authorization: str = Header(default=None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -290,6 +328,8 @@ def current_user(authorization: str = Header(default=None)):
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if payload.get("scope") == "mfa":
+        raise HTTPException(status_code=401, detail="Two-factor verification required")
     uid, uname = int(payload["sub"]), payload["username"]
     is_pro, role = 0, "user"
     try:
@@ -514,7 +554,132 @@ def login(creds: Credentials):
         ).mappings().first()
     if not row or not bcrypt.verify(creds.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    # 2FA on: the password alone yields no session, only a 5-minute challenge.
+    if row.get("totp_enabled") and row.get("totp_secret"):
+        return {"mfaRequired": True,
+                "mfaToken": make_mfa_token(row["id"], row["username"]),
+                "username": row["username"]}
     return {"token": make_token(row["id"], row["username"]), "username": row["username"]}
+
+
+# ---------------------------------------------------------------------------
+# Two-factor auth (TOTP -- Google Authenticator, Authy, 1Password, ...)
+# ---------------------------------------------------------------------------
+def _load_user(uid):
+    with engine.connect() as conn:
+        return conn.execute(select(users_t).where(users_t.c.id == uid)).mappings().first()
+
+
+def _totp_ok(secret, code):
+    """valid_window=1 accepts the adjacent 30s step, covering clock drift."""
+    if not secret or not code:
+        return False
+    return pyotp.TOTP(secret).verify(str(code).strip().replace(" ", ""), valid_window=1)
+
+
+def _new_backup_codes(n=10):
+    """Plaintext codes go to the user once; only bcrypt hashes are stored."""
+    codes = [f"{secrets.token_hex(2)}-{secrets.token_hex(2)}" for _ in range(n)]
+    return codes, json.dumps([bcrypt.hash(c) for c in codes])
+
+
+def _consume_backup_code(row, code):
+    """True if `code` matches an unused backup code; burns it on success."""
+    try:
+        hashes = json.loads(row.get("backup_codes") or "[]")
+    except ValueError:
+        return False
+    cleaned = str(code).strip().lower()
+    for h in hashes:
+        try:
+            matched = bcrypt.verify(cleaned, h)
+        except ValueError:
+            matched = False
+        if matched:
+            hashes.remove(h)
+            with engine.begin() as conn:
+                conn.execute(update(users_t).where(users_t.c.id == row["id"])
+                             .values(backup_codes=json.dumps(hashes)))
+            return True
+    return False
+
+
+@app.post("/api/auth/login/2fa")
+def login_2fa(body: MfaLogin):
+    try:
+        payload = jwt.decode(body.mfaToken, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Challenge expired -- sign in again")
+    if payload.get("scope") != "mfa":
+        raise HTTPException(status_code=401, detail="Invalid challenge token")
+    row = _load_user(int(payload["sub"]))
+    if not row or not row.get("totp_enabled"):
+        raise HTTPException(status_code=401, detail="Two-factor is not enabled for this account")
+    if not (_totp_ok(row.get("totp_secret"), body.code) or _consume_backup_code(row, body.code)):
+        raise HTTPException(status_code=401, detail="Incorrect code")
+    return {"token": make_token(row["id"], row["username"]), "username": row["username"]}
+
+
+@app.post("/api/me/2fa/setup")
+def mfa_setup(user=Depends(current_user)):
+    """Mint a secret and return its QR. Stored but inert until /enable."""
+    row = _load_user(user["id"])
+    if row and row.get("totp_enabled"):
+        raise HTTPException(status_code=400, detail="Two-factor is already enabled")
+    secret = pyotp.random_base32()
+    with engine.begin() as conn:
+        conn.execute(update(users_t).where(users_t.c.id == user["id"]).values(totp_secret=secret))
+    uri = pyotp.TOTP(secret).provisioning_uri(name=user["username"], issuer_name=MFA_ISSUER)
+    buf = io.BytesIO()
+    qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage).save(buf)
+    qr_svg = base64.b64encode(buf.getvalue()).decode()
+    return {"secret": secret, "otpauthUri": uri,
+            "qrDataUri": "data:image/svg+xml;base64," + qr_svg}
+
+
+@app.post("/api/me/2fa/enable")
+def mfa_enable(body: TotpCode, user=Depends(current_user)):
+    row = _load_user(user["id"])
+    if not row or not row.get("totp_secret"):
+        raise HTTPException(status_code=400, detail="Start setup first")
+    if row.get("totp_enabled"):
+        raise HTTPException(status_code=400, detail="Two-factor is already enabled")
+    if not _totp_ok(row["totp_secret"], body.code):
+        raise HTTPException(status_code=400, detail="That code didn't match -- check the time on your phone and try again")
+    codes, hashed = _new_backup_codes()
+    with engine.begin() as conn:
+        conn.execute(update(users_t).where(users_t.c.id == user["id"])
+                     .values(totp_enabled=1, backup_codes=hashed))
+    return {"enabled": True, "backupCodes": codes}
+
+
+@app.post("/api/me/2fa/disable")
+def mfa_disable(body: TotpDisable, user=Depends(current_user)):
+    """Password AND a live code -- a stolen session alone can't strip 2FA."""
+    row = _load_user(user["id"])
+    if not row or not row.get("totp_enabled"):
+        raise HTTPException(status_code=400, detail="Two-factor is not enabled")
+    if not bcrypt.verify(body.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    if not (_totp_ok(row.get("totp_secret"), body.code) or _consume_backup_code(row, body.code)):
+        raise HTTPException(status_code=401, detail="Incorrect code")
+    with engine.begin() as conn:
+        conn.execute(update(users_t).where(users_t.c.id == user["id"])
+                     .values(totp_enabled=0, totp_secret=None, backup_codes=None))
+    return {"enabled": False}
+
+
+@app.post("/api/me/2fa/backup-codes")
+def mfa_regen_backup_codes(body: TotpCode, user=Depends(current_user)):
+    row = _load_user(user["id"])
+    if not row or not row.get("totp_enabled"):
+        raise HTTPException(status_code=400, detail="Two-factor is not enabled")
+    if not _totp_ok(row.get("totp_secret"), body.code):
+        raise HTTPException(status_code=401, detail="Incorrect code")
+    codes, hashed = _new_backup_codes()
+    with engine.begin() as conn:
+        conn.execute(update(users_t).where(users_t.c.id == user["id"]).values(backup_codes=hashed))
+    return {"backupCodes": codes}
 
 
 # ---------------------------------------------------------------------------
@@ -595,8 +760,10 @@ def _set_pro(uid, val):
 
 @app.get("/api/me")
 def get_me(user=Depends(current_user)):
+    row = _load_user(user["id"])
     return {"username": user["username"], "isPro": user["is_pro"], "isAdmin": user["is_admin"],
-            "billingEnabled": STRIPE_ENABLED}
+            "billingEnabled": STRIPE_ENABLED,
+            "mfaEnabled": bool(row and row.get("totp_enabled"))}
 
 
 @app.post("/api/billing/checkout")

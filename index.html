@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Global Lower-Tier Scouting Prototype</title>
 <style>
   :root {
@@ -68,8 +68,16 @@
     align-items: start;
   }
   @media (max-width: 900px) {
-    .layout { grid-template-columns: 1fr; }
+    /* minmax(0, 1fr), not 1fr: a bare 1fr track is minmax(auto, 1fr) and so
+       refuses to shrink below its content's min-content width -- the table's
+       min-width:640px was inflating the whole column to ~642px on a 375px
+       phone, and overflow-x:hidden then just clipped it. */
+    .layout { grid-template-columns: minmax(0, 1fr); }
   }
+  /* Grid/flex children must be allowed to shrink past their content, or an
+     inner scroll container (.table-wrap) can't actually contain its overflow. */
+  .layout > * { min-width: 0; }
+  .table-wrap { min-width: 0; max-width: 100%; }
 
   .card {
     background: var(--card);
@@ -280,6 +288,27 @@
 
   /* ---- Settings modal ---- */
   .settings-modal { max-width: 640px; }
+  /* 2FA setup: QR sits on white so authenticator apps can always read it */
+  .mfa-qr-wrap {
+    background: #fff; padding: 12px; border-radius: 10px; display: inline-block;
+    margin: 4px 0 10px; max-width: 100%;
+  }
+  .mfa-qr-wrap img { display: block; width: 190px; max-width: 100%; height: auto; }
+  .mfa-secret {
+    display: inline-block; margin-top: 5px; padding: 6px 9px; border-radius: 6px;
+    background: rgba(255,255,255,.06); border: 1px solid var(--border);
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px;
+    letter-spacing: .06em; word-break: break-all; user-select: all;
+  }
+  .mfa-code-list {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin: 10px 0 12px;
+  }
+  .mfa-code-list span {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
+    padding: 7px 9px; border-radius: 6px; background: rgba(255,255,255,.05);
+    border: 1px solid var(--border); text-align: center; user-select: all;
+  }
+  @media (max-width: 480px) { .mfa-code-list { grid-template-columns: 1fr; } }
   .settings-body { display: grid; grid-template-columns: 150px 1fr; gap: 18px; margin-top: 8px; min-height: 260px; }
   .settings-nav { display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--border); padding-right: 12px; }
   .sn-item { text-align: left; padding: 9px 11px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; border-radius: 7px; }
@@ -754,6 +783,12 @@
     font-size: 11.5px; color: var(--muted); margin-top: 6px; max-width: 640px; line-height: 1.5;
   }
 
+  /* Media elements never exceed their container -- the root cause of images
+     and charts blowing out the layout (and forcing horizontal scroll) on
+     phones. Explicit sizes on .market-chart etc. still win by specificity. */
+  img, svg, canvas, video, iframe { max-width: 100%; }
+  img, video { height: auto; }
+
   /* Mobile responsiveness */
   @media (max-width: 720px) {
     /* header: stack titles above a full-width account control */
@@ -797,13 +832,35 @@
     .stat-chip { flex: 1 1 100%; }
     .auth-btn-row { flex-direction: column; }
   }
+
+  /* ---- Touch / small-screen ergonomics ----------------------------------
+     Applies to real touch devices as well as narrow windows. iOS zooms the
+     page whenever a focused input is under 16px, which is what makes the app
+     look "wrong" after tapping a field -- so inputs go to 16px on mobile. */
+  @media (max-width: 720px) {
+    input, select, textarea { font-size: 16px; }
+    button, .dash-btn, .sn-item, .gate-submit, .account-toggle { min-height: 44px; }
+    .feat-modal, .settings-modal {
+      width: 100%; max-width: 100%; max-height: 92vh; overflow-y: auto;
+      -webkit-overflow-scrolling: touch; box-sizing: border-box;
+    }
+    .settings-body { grid-template-columns: 1fr; }
+    /* the floating profile widget shouldn't cover the content it sits on */
+    .profile-widget { position: static; width: auto; margin: 10px; }
+    .auth-gate { padding: 14px; align-items: flex-start; overflow-y: auto; }
+    .gate-card { width: 100%; max-width: 100%; box-sizing: border-box; margin: 24px 0; }
+  }
+  @media (hover: none) and (pointer: coarse) {
+    /* hover-only affordances never trigger on touch -- keep them visible */
+    .row-actions, .modal-star-btn { opacity: 1; }
+  }
 </style>
 </head>
 <body>
 
 <!-- ===== Auth gate: no data is shown until the user signs in ===== -->
 <div class="auth-gate" id="auth-gate" role="dialog" aria-modal="true" aria-label="Sign in to ScoutEdge">
-  <div class="gate-card">
+  <div class="gate-card" id="gate-login-card">
     <div class="gate-brand"><span class="gate-mark" aria-hidden="true"></span>ScoutEdge</div>
     <div class="gate-lede" id="gate-lede">Sign in to your scouting workspace.</div>
     <div class="gate-tabs">
@@ -825,6 +882,20 @@
     <button type="button" class="gate-submit" id="gate-submit">Sign in</button>
     <div class="gate-status" id="gate-status"></div>
     <div class="gate-switch" id="gate-switch">New to ScoutEdge? <a href="#" id="gate-switch-link">Create an account</a></div>
+  </div>
+  <!-- Second step: shown only when the account has 2FA switched on -->
+  <div class="gate-card" id="gate-mfa-card" style="display:none;">
+    <div class="gate-brand">ScoutEdge</div>
+    <div class="gate-sub">Two-factor authentication</div>
+    <p class="set-desc">Enter the 6-digit code from your authenticator app. You can also use one of your backup codes.</p>
+    <div class="field">
+      <label for="gate-mfa-code">Authentication code</label>
+      <input type="text" id="gate-mfa-code" inputmode="numeric" autocomplete="one-time-code"
+             placeholder="123456" maxlength="32">
+    </div>
+    <button type="button" class="gate-submit" id="gate-mfa-submit">Verify</button>
+    <div class="gate-status" id="gate-mfa-status"></div>
+    <div class="gate-switch"><a href="#" id="gate-mfa-back">Back to sign in</a></div>
   </div>
 </div>
 
@@ -958,6 +1029,7 @@
     <div class="settings-body">
       <div class="settings-nav" id="settings-nav">
         <button class="sn-item active" data-panel="account">Account</button>
+        <button class="sn-item" data-panel="security">Security</button>
         <button class="sn-item" data-panel="subscription">Subscription</button>
         <button class="sn-item" data-panel="dashboard">Dashboard</button>
         <button class="sn-item" data-panel="admin" id="sn-admin" style="display:none;">Admin</button>
@@ -968,6 +1040,57 @@
           <div class="set-row"><span class="set-k">Username</span><span class="set-v" id="set-username">&mdash;</span></div>
           <div class="set-row"><span class="set-k">Plan</span><span class="set-v" id="set-plan">Free</span></div>
           <button class="dash-btn" id="set-logout" style="margin-top:14px;">Log out</button>
+        </div>
+        <div class="settings-panel" data-panel="security" style="display:none;">
+          <h4>Two-factor authentication</h4>
+          <div class="set-row">
+            <span class="set-k">Status</span>
+            <span class="set-v" id="mfa-status-label">&mdash;</span>
+          </div>
+
+          <!-- OFF: offer setup -->
+          <div id="mfa-off">
+            <p class="set-desc">Add a second step at sign-in using an authenticator app (Google Authenticator, Authy, 1Password). Even if your password leaks, your account stays locked.</p>
+            <button class="dash-btn dash-btn-primary" id="mfa-start">Set up two-factor</button>
+          </div>
+
+          <!-- SETUP: scan the QR, confirm a code -->
+          <div id="mfa-setup" style="display:none;">
+            <p class="set-desc">1. Scan this code with your authenticator app:</p>
+            <div class="mfa-qr-wrap"><img id="mfa-qr" alt="Two-factor setup QR code"></div>
+            <p class="set-desc">Can't scan? Enter this key manually:<br><code class="mfa-secret" id="mfa-secret"></code></p>
+            <p class="set-desc">2. Enter the 6-digit code it shows:</p>
+            <div class="field">
+              <input type="text" id="mfa-verify-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="32">
+            </div>
+            <div class="auth-btn-row">
+              <button class="dash-btn dash-btn-primary" id="mfa-confirm">Turn on two-factor</button>
+              <button class="dash-btn" id="mfa-cancel">Cancel</button>
+            </div>
+          </div>
+
+          <!-- CODES: shown once, right after enabling -->
+          <div id="mfa-codes" style="display:none;">
+            <p class="set-desc"><b>Save these backup codes now.</b> Each works once if you lose your phone &mdash; this is the only time they're shown.</p>
+            <div class="mfa-code-list" id="mfa-code-list"></div>
+            <button class="dash-btn" id="mfa-codes-done">I've saved them</button>
+          </div>
+
+          <!-- ON: allow regenerating codes / turning off -->
+          <div id="mfa-on" style="display:none;">
+            <p class="set-desc">Two-factor is <b>on</b>. You'll be asked for a code each time you sign in.</p>
+            <div class="auth-btn-row">
+              <button class="dash-btn" id="mfa-regen">New backup codes</button>
+              <button class="dash-btn" id="mfa-disable">Turn off</button>
+            </div>
+            <div id="mfa-disable-form" style="display:none; margin-top:12px;">
+              <p class="set-desc">Confirm with your password and a current code.</p>
+              <div class="field"><input type="password" id="mfa-off-pw" autocomplete="current-password" placeholder="Password"></div>
+              <div class="field"><input type="text" id="mfa-off-code" inputmode="numeric" placeholder="123456" maxlength="32"></div>
+              <button class="dash-btn" id="mfa-off-confirm">Turn off two-factor</button>
+            </div>
+          </div>
+          <div class="feat-status" id="mfa-msg"></div>
         </div>
         <div class="settings-panel" data-panel="subscription" style="display:none;">
           <h4>Subscription</h4>
@@ -3734,17 +3857,72 @@ async function gateSubmit() {
     data = await res.json().catch(() => ({}));
     if (!res.ok) { setGateStatus(typeof data.detail === "string" ? data.detail : "That didn't work — try again.", "err"); return; }
   } catch (e) { setGateStatus("Could not reach the server. Try again.", "err"); return; }
+  // Account has 2FA on: the password alone doesn't sign you in.
+  if (data.mfaRequired) { showMfaStep(data.mfaToken); return; }
+  gateFinish(data, gateMode === "signup");
+}
+
+/* Establish the session once credentials (and any 2FA) have cleared. */
+function gateFinish(data, wasSignup) {
   authToken = data.token; authUser = data.username;
   try { localStorage.setItem(AUTH_KEY, JSON.stringify({ token: authToken, username: authUser })); } catch (e) {}
   document.getElementById("gate-password").value = "";
-  const wasSignup = gateMode === "signup";
+  const mfaInput = document.getElementById("gate-mfa-code");
+  if (mfaInput) mfaInput.value = "";
+  pendingMfaToken = null;
   hideGate();
   startApp();
   updateAuthUI();
   if (wasSignup) { try { localStorage.setItem("scoutedge.tour.pending", "1"); } catch (e) {} }
 }
 
+/* ---- 2FA challenge step ---- */
+let pendingMfaToken = null;
+
+function showMfaStep(mfaToken) {
+  pendingMfaToken = mfaToken;
+  document.getElementById("gate-login-card").style.display = "none";
+  document.getElementById("gate-mfa-card").style.display = "";
+  document.getElementById("gate-mfa-status").textContent = "";
+  const input = document.getElementById("gate-mfa-code");
+  input.value = "";
+  input.focus();
+}
+
+function hideMfaStep() {
+  pendingMfaToken = null;
+  document.getElementById("gate-mfa-card").style.display = "none";
+  document.getElementById("gate-login-card").style.display = "";
+  setGateStatus("", "");
+}
+
+async function mfaSubmit() {
+  const code = document.getElementById("gate-mfa-code").value.trim();
+  const status = document.getElementById("gate-mfa-status");
+  if (!code) { status.textContent = "Enter your 6-digit code."; status.className = "gate-status err"; return; }
+  if (!pendingMfaToken) { hideMfaStep(); return; }
+  status.textContent = "Verifying..."; status.className = "gate-status";
+  try {
+    const res = await fetch(API_BASE + "/api/auth/login/2fa", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfaToken: pendingMfaToken, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      status.textContent = typeof data.detail === "string" ? data.detail : "Incorrect code.";
+      status.className = "gate-status err";
+      // An expired challenge means starting over from the password step.
+      if (res.status === 401 && /expired/i.test(data.detail || "")) setTimeout(hideMfaStep, 1500);
+      return;
+    }
+    gateFinish(data, false);
+  } catch (e) { status.textContent = "Could not reach the server."; status.className = "gate-status err"; }
+}
+
 function initGate() {
+  document.getElementById("gate-mfa-submit").addEventListener("click", mfaSubmit);
+  document.getElementById("gate-mfa-back").addEventListener("click", e => { e.preventDefault(); hideMfaStep(); });
+  document.getElementById("gate-mfa-code").addEventListener("keydown", e => { if (e.key === "Enter") mfaSubmit(); });
   document.getElementById("gate-tab-login").addEventListener("click", () => setGateMode("login"));
   document.getElementById("gate-tab-signup").addEventListener("click", () => setGateMode("signup"));
   document.getElementById("gate-switch-link").addEventListener("click", e => { e.preventDefault(); setGateMode(gateMode === "signup" ? "login" : "signup"); });
@@ -3849,6 +4027,7 @@ function featApplyRole() {
   if (g("set-sub-free")) g("set-sub-free").style.display = featMe.isPro ? "none" : "";
   if (g("set-sub-pro")) g("set-sub-pro").style.display = featMe.isPro ? "" : "none";
   if (g("sn-admin")) g("sn-admin").style.display = featMe.isAdmin ? "" : "none";
+  mfaRender();
   const ac = g("auth-card"); if (ac) ac.style.display = "none";   // account lives bottom-left now
 }
 function featSettingsPanel(name) {
@@ -3858,7 +4037,99 @@ function featSettingsPanel(name) {
 function featOpenSettings(panel) {
   const m = document.getElementById("profile-menu"); if (m) m.classList.remove("open");
   if (panel) featSettingsPanel(panel);
+  mfaRender();
   featOpen("settings-modal-overlay");
+}
+
+/* ---- Two-factor authentication (Settings -> Security) ---- */
+function mfaMsg(text, cls) {
+  const el = document.getElementById("mfa-msg");
+  if (el) { el.textContent = text || ""; el.className = "feat-status" + (cls ? " " + cls : ""); }
+}
+function mfaShow(section) {
+  ["mfa-off", "mfa-setup", "mfa-codes", "mfa-on"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === section ? "" : "none";
+  });
+}
+function mfaSetLabel() {
+  const label = document.getElementById("mfa-status-label");
+  if (label) label.textContent = featMe.mfaEnabled ? "On" : "Off";
+}
+function mfaRender() {
+  const label = document.getElementById("mfa-status-label");
+  if (!label) return;
+  const on = !!featMe.mfaEnabled;
+  mfaSetLabel();
+  mfaShow(on ? "mfa-on" : "mfa-off");
+  const df = document.getElementById("mfa-disable-form");
+  if (df) df.style.display = "none";
+  mfaMsg("");
+}
+async function mfaStart() {
+  mfaMsg("Generating your setup code…");
+  const r = await apiFetch("/api/me/2fa/setup", { method: "POST" });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { mfaMsg(d.detail || "Could not start setup.", "err"); return; }
+  document.getElementById("mfa-qr").src = d.qrDataUri;
+  document.getElementById("mfa-secret").textContent = d.secret;
+  document.getElementById("mfa-verify-code").value = "";
+  mfaShow("mfa-setup");
+  mfaMsg("");
+}
+async function mfaConfirm() {
+  const code = document.getElementById("mfa-verify-code").value.trim();
+  if (!code) { mfaMsg("Enter the code from your app.", "err"); return; }
+  mfaMsg("Verifying…");
+  const r = await apiFetch("/api/me/2fa/enable", { method: "POST", body: JSON.stringify({ code }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { mfaMsg(d.detail || "That code didn't match.", "err"); return; }
+  featMe.mfaEnabled = true;
+  mfaSetLabel();               // keep the codes on screen, but reflect the new state
+  mfaShowCodes(d.backupCodes || []);
+  mfaMsg("Two-factor is on.", "ok");
+}
+function mfaShowCodes(codes) {
+  const list = document.getElementById("mfa-code-list");
+  if (list) list.innerHTML = codes.map(c => `<span>${c}</span>`).join("");
+  mfaShow("mfa-codes");
+}
+async function mfaRegen() {
+  const code = prompt("Enter a current code from your authenticator app to generate new backup codes:");
+  if (!code) return;
+  const r = await apiFetch("/api/me/2fa/backup-codes", { method: "POST", body: JSON.stringify({ code: code.trim() }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { mfaMsg(d.detail || "Could not regenerate codes.", "err"); return; }
+  mfaShowCodes(d.backupCodes || []);
+  mfaMsg("New backup codes generated — the old ones no longer work.", "ok");
+}
+async function mfaDisable() {
+  const pw = document.getElementById("mfa-off-pw").value;
+  const code = document.getElementById("mfa-off-code").value.trim();
+  if (!pw || !code) { mfaMsg("Password and a current code are both required.", "err"); return; }
+  mfaMsg("Turning off…");
+  const r = await apiFetch("/api/me/2fa/disable", { method: "POST", body: JSON.stringify({ password: pw, code }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { mfaMsg(d.detail || "Could not turn off two-factor.", "err"); return; }
+  document.getElementById("mfa-off-pw").value = "";
+  document.getElementById("mfa-off-code").value = "";
+  featMe.mfaEnabled = false;
+  mfaRender();
+  mfaMsg("Two-factor is off.", "ok");
+}
+function initMfaUI() {
+  const on = (id, fn, ev) => { const el = document.getElementById(id); if (el) el.addEventListener(ev || "click", fn); };
+  on("mfa-start", mfaStart);
+  on("mfa-confirm", mfaConfirm);
+  on("mfa-cancel", () => mfaRender());
+  on("mfa-codes-done", () => mfaRender());
+  on("mfa-regen", mfaRegen);
+  on("mfa-disable", () => {
+    const df = document.getElementById("mfa-disable-form");
+    if (df) df.style.display = df.style.display === "none" ? "" : "none";
+  });
+  on("mfa-off-confirm", mfaDisable);
+  on("mfa-verify-code", e => { if (e.key === "Enter") mfaConfirm(); }, "keydown");
 }
 async function featCancelSub() {
   const st = document.getElementById("set-billing-status");
@@ -4072,6 +4343,7 @@ initDashboard();
 initDemo();
 initTour();
 initFeatures();
+initMfaUI();
 </script>
 </body>
 </html>

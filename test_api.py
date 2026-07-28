@@ -444,3 +444,81 @@ def test_deal_fields_in_api():
     scores = [x["dealScore"] for x in d["items"]]
     assert scores == sorted(scores, reverse=True)
     assert scores[0] > 55  # the call list's top end exists
+
+
+# ---------------------------------------------------------------------------
+# Two-factor authentication (TOTP)
+# ---------------------------------------------------------------------------
+def _mfa_user(name):
+    """Register a user and walk them through enabling 2FA."""
+    import pyotp
+    r = client.post("/api/auth/register", json={"username": name, "password": "secret123"})
+    assert r.status_code == 200, r.text
+    h = {"Authorization": "Bearer " + r.json()["token"]}
+    secret = client.post("/api/me/2fa/setup", headers=h).json()["secret"]
+    codes = client.post("/api/me/2fa/enable",
+                        json={"code": pyotp.TOTP(secret).now()}, headers=h).json()["backupCodes"]
+    return h, secret, codes
+
+
+def test_2fa_setup_returns_secret_and_qr():
+    r = client.post("/api/auth/register", json={"username": "mfa_setup", "password": "secret123"})
+    h = {"Authorization": "Bearer " + r.json()["token"]}
+    d = client.post("/api/me/2fa/setup", headers=h).json()
+    assert len(d["secret"]) >= 16
+    assert d["otpauthUri"].startswith("otpauth://totp/")
+    assert d["qrDataUri"].startswith("data:image/svg+xml;base64,")
+    # still off until a code is confirmed
+    assert client.get("/api/me", headers=h).json()["mfaEnabled"] is False
+
+
+def test_2fa_enable_rejects_wrong_code():
+    r = client.post("/api/auth/register", json={"username": "mfa_wrong", "password": "secret123"})
+    h = {"Authorization": "Bearer " + r.json()["token"]}
+    client.post("/api/me/2fa/setup", headers=h)
+    assert client.post("/api/me/2fa/enable", json={"code": "000000"}, headers=h).status_code == 400
+
+
+def test_2fa_login_withholds_token_until_code_verified():
+    import pyotp
+    h, secret, _ = _mfa_user("mfa_login")
+    assert client.get("/api/me", headers=h).json()["mfaEnabled"] is True
+
+    r = client.post("/api/auth/login", json={"username": "mfa_login", "password": "secret123"})
+    body = r.json()
+    assert body.get("mfaRequired") is True
+    assert "token" not in body                      # password alone grants nothing
+    challenge = body["mfaToken"]
+
+    # the challenge token must not work as an access token
+    assert client.get("/api/me", headers={"Authorization": "Bearer " + challenge}).status_code == 401
+    # wrong code rejected
+    assert client.post("/api/auth/login/2fa",
+                       json={"mfaToken": challenge, "code": "123456"}).status_code == 401
+    # correct code completes the login
+    ok = client.post("/api/auth/login/2fa",
+                     json={"mfaToken": challenge, "code": pyotp.TOTP(secret).now()})
+    assert ok.status_code == 200 and "token" in ok.json()
+
+
+def test_2fa_backup_code_works_once():
+    h, _, codes = _mfa_user("mfa_backup")
+    for expected in (200, 401):                     # second use of the same code must fail
+        ch = client.post("/api/auth/login",
+                         json={"username": "mfa_backup", "password": "secret123"}).json()["mfaToken"]
+        r = client.post("/api/auth/login/2fa", json={"mfaToken": ch, "code": codes[0]})
+        assert r.status_code == expected
+
+
+def test_2fa_disable_requires_password_and_code():
+    import pyotp
+    h, secret, _ = _mfa_user("mfa_disable")
+    bad = client.post("/api/me/2fa/disable",
+                      json={"password": "wrongpw", "code": pyotp.TOTP(secret).now()}, headers=h)
+    assert bad.status_code == 401
+    ok = client.post("/api/me/2fa/disable",
+                     json={"password": "secret123", "code": pyotp.TOTP(secret).now()}, headers=h)
+    assert ok.status_code == 200
+    # login is single-factor again
+    assert "token" in client.post("/api/auth/login",
+                                  json={"username": "mfa_disable", "password": "secret123"}).json()
