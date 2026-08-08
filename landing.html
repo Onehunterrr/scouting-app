@@ -313,7 +313,7 @@
         </div>
         <div class="trust">
           <span><b>5,000</b> players scouted</span>
-          <span><b>32</b> countries · six continents</span>
+          <span><b data-meta-countries>38</b> countries · six continents</span>
           <span><b>Transparent</b> percentile scoring</span>
         </div>
       </div>
@@ -421,7 +421,7 @@
         <div class="feature reveal">
           <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 6 3.8 9S14.5 18.3 12 21c-2.5-2.7-3.8-6-3.8-9S9.5 5.7 12 3z"/></svg></div>
           <h3>Global coverage</h3>
-          <p>5,000 players across 32 countries on six continents — with a dedicated goalkeeper model, not a striker's metrics forced onto a keeper.</p>
+          <p>5,000 players across <span data-meta-countries>38</span> countries on six continents — with a dedicated goalkeeper model, not a striker's metrics forced onto a keeper.</p>
         </div>
         <div class="feature reveal">
           <div class="f-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 3.5l2.2 4.6 5 .7-3.6 3.5.9 5-4.4-2.4-4.4 2.4.9-5L4.3 8.8l5-.7z"/></svg></div>
@@ -441,9 +441,27 @@
   <section id="numbers">
     <div class="wrap">
       <div class="stats reveal">
+        <script>
+        /* The country count was hardcoded in three places and silently went
+           stale the moment the roster grew past 32. Read it from the API so it
+           can't drift again; the markup keeps the current figure as a fallback
+           for when this is opened without a server behind it. */
+        (function () {
+          fetch("/api/meta").then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (m) {
+              if (!m || !m.countryCount) return;
+              document.querySelectorAll("[data-meta-countries]").forEach(function (el) {
+                el.textContent = m.countryCount;
+              });
+              document.querySelectorAll("[data-meta-countries-attr]").forEach(function (el) {
+                el.setAttribute("data-count", m.countryCount);
+              });
+            }).catch(function () { /* offline -- the markup fallback stands */ });
+        })();
+        </script>
         <div class="stats-grid">
           <div class="stat"><div class="s-num"><span data-count="5000" data-suffix="+">0</span></div><div class="s-lbl">Players ranked</div></div>
-          <div class="stat"><div class="s-num"><span data-count="32">0</span></div><div class="s-lbl">Countries</div></div>
+          <div class="stat"><div class="s-num"><span data-count="38" data-meta-countries-attr>0</span></div><div class="s-lbl">Countries</div></div>
           <div class="stat"><div class="s-num"><span data-count="4">0</span></div><div class="s-lbl">Position models</div></div>
           <div class="stat"><div class="s-num">Weekly</div><div class="s-lbl">Data refresh</div></div>
         </div>
