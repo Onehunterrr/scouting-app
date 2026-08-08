@@ -1,0 +1,239 @@
+"# SAMPLE DATA - fictional players, DO NOT contact these addresses"
+rank,name,position,age,country,club,tier,dealScore,acquirability,undervalued,contractExpires,hasAgent,contactRoute,clubContactEmail (FICTIONAL)
+1,Stefan Jovanovic,MF,22,Serbia,Backa Topola United,3,84.9,86.3,83.9,2026,No,Club sporting director / first-team office,info@backatopolaunited.rs
+2,Didier Bamba-Kouassi,FW,22,Ivory Coast,Abidjan SC,2,82.9,81.7,83.7,2026,No,Club sporting director / first-team office,info@abidjansc.ci
+3,Klodian Bardhi-Hoxha,DF,21,Albania,Vlore FC,2,82.5,68.8,93.0,2027,No,Club sporting director / first-team office,info@vlorefc.al
+4,Franck Kouassi-Kone,DF,19,Ivory Coast,Yamoussoukro Rovers,2,82.2,70.4,91.2,2026,No,Club sporting director / first-team office,info@yamoussoukrorovers.ci
+5,Erion Duro-Shala,GK,19,Albania,Elbasan Town,3,80.3,68.5,89.2,2027,No,Club sporting director / first-team office,info@elbasantown.al
+6,Abdoulaye Sow-Ndiaye,FW,19,Senegal,Ziguinchor United,3,79.9,71.8,85.8,2027,No,Club sporting director / first-team office,info@ziguinchorunited.sn
+7,Sardor Rashidov-Rustamov,MF,24,Uzbekistan,Bukhara SC,4,79.5,96.8,69.7,2026,No,Club sporting director / first-team office,info@bukharasc.uz
+8,Balazs Varga-Horvath,FW,21,Hungary,Pecs Wanderers,3,79.2,81.5,77.7,2026,No,Club sporting director / first-team office,info@pecswanderers.hu
+9,Rasmus Saar-Mets,GK,25,Estonia,Narva FC,2,78.5,62.2,91.7,2027,Unknown,Club sporting director / first-team office,info@narvafc.ee
+10,Erion Duro-Hoxha,MF,22,Albania,Elbasan Wanderers,2,78.4,66.3,87.6,2027,No,Club sporting director / first-team office,info@elbasanwanderers.al
+11,Haruto Ito-Suzuki,FW,26,Japan,Osaka United,2,77.8,79.7,76.6,2026,No,Club sporting director / first-team office,info@osakaunited.jp
+12,Anderson Perez-Martinez,MF,24,Venezuela,Maracaibo Wanderers,2,77.6,79.0,76.8,2026,No,Club sporting director / first-team office,info@maracaibowanderers.ve
+13,Domagoj Novak-Kovacevic,DF,25,Croatia,Zagreb SC,3,77.0,81.4,74.2,2027,No,Club sporting director / first-team office,info@zagrebsc.hr
+14,Dominik Urban,DF,24,Slovakia,Presov SC,4,76.7,88.2,69.9,2026,Unknown,Club sporting director / first-team office,info@presovsc.sk
+15,Anon Sanguan-Boonmee,DF,21,Thailand,Chiang Mai United,4,76.6,89.9,68.9,2026,No,Club sporting director / first-team office,info@chiangmaiunited.th
+16,Luka Krajnc-Horvat,FW,18,Slovenia,Maribor Town,2,76.2,67.0,83.0,2026,No,Club sporting director / first-team office,info@maribortown.si
+17,Ahmed Salim-Mahmoud,MF,22,Iraq,Baghdad Wanderers,3,75.5,70.6,78.9,2027,Unknown,Club sporting director / first-team office,info@baghdadwanderers.iq
+18,Saba Lomidze 64,GK,26,Georgia,Kutaisi Wanderers,2,75.0,64.6,82.9,2027,Unknown,Club sporting director / first-team office,info@kutaisiwanderers.ge
+19,Jack Clarke-Brown,DF,20,New Zealand,Auckland SC,4,74.9,76.9,73.6,2027,No,Club sporting director / first-team office,info@aucklandsc.nz
+20,Ren Ito,FW,22,Japan,Osaka Town,3,74.6,65.5,81.4,2027,Unknown,Club sporting director / first-team office,info@osakatown.jp
+21,Jose Barrios-Escobar,FW,19,Panama,Colon FC,2,74.5,65.8,81.1,2026,No,Club sporting director / first-team office,info@colonfc.pa
+22,Sardor Rashidov,FW,24,Uzbekistan,Andijan United,2,74.4,52.1,94.4,2028,No,Club sporting director / first-team office,info@andijanunited.uz
+23,Tomas Urban,DF,19,Slovakia,Nitra City,2,74.0,61.4,83.8,2026,Unknown,Club sporting director / first-team office,info@nitracity.sk
+24,Max Bamba-Toure,DF,23,Ivory Coast,San Pedro City,2,73.9,71.5,75.5,2026,Unknown,Club sporting director / first-team office,info@sanpedrocity.ci
+25,Kaito Sato-Watanabe,FW,19,Japan,Fukuoka City,3,73.8,74.0,73.7,2026,No,Club sporting director / first-team office,info@fukuokacity.jp
+26,Santiago Vargas,GK,19,Bolivia,La Paz Rovers,2,73.8,61.1,83.6,2027,No,Club sporting director / first-team office,info@lapazrovers.bo
+27,Kaito Suzuki-Sato,GK,21,Japan,Nagoya Athletic,2,73.5,74.2,73.1,2026,No,Club sporting director / first-team office,info@nagoyaathletic.jp
+28,Ivan Gonzalez-Cardozo,DF,22,Paraguay,Ciudad del Este Rangers,3,73.5,87.5,65.4,2026,No,Club sporting director / first-team office,info@ciudaddelesterangers.py
+29,Andres Saar,GK,20,Estonia,Tallinn Rangers,3,73.4,66.4,78.4,2026,Unknown,Club sporting director / first-team office,info@tallinnrangers.ee
+30,Peter Toth,DF,25,Slovakia,Nitra Athletic,2,73.3,69.6,75.9,2026,Unknown,Club sporting director / first-team office,info@nitraathletic.sk
+31,Szymon Wisniewski,GK,19,Poland,Rzeszow SC,2,73.2,55.6,88.0,2027,Unknown,Club sporting director / first-team office,info@rzeszowsc.pl
+32,Kacper Nowak,MF,18,Poland,Gdynia Athletic,2,73.2,61.0,82.7,2026,Unknown,Club sporting director / first-team office,info@gdyniaathletic.pl
+33,Arturs Berzins-Vitols,MF,18,Latvia,Liepaja FC,3,73.1,71.8,74.0,2026,Unknown,Club sporting director / first-team office,info@liepajafc.lv
+34,Serge Diabate-Bamba,MF,26,Ivory Coast,Bouake Rangers,2,73.0,85.0,66.0,2026,No,Club sporting director / first-team office,info@bouakerangers.ci
+35,Vasil Trajkovski,GK,24,North Macedonia,Bitola City,2,72.8,71.1,74.0,2027,No,Club sporting director / first-team office,info@bitolacity.mk
+36,Carlos Preciado-Chavez,GK,21,Ecuador,Guayaquil Wanderers,3,72.6,69.5,74.7,2027,No,Club sporting director / first-team office,info@guayaquilwanderers.ec
+37,Min-jun Jung-Kang,DF,24,South Korea,Daejeon Athletic,2,72.5,52.2,90.2,2028,No,Club sporting director / first-team office,info@daejeonathletic.kr
+38,Romell Elvir,MF,24,Honduras,San Pedro Sula Town,4,72.4,84.8,65.2,2027,No,Club sporting director / first-team office,info@sanpedrosulatown.hn
+39,Szymon Kaminski,DF,18,Poland,Tychy Wanderers,2,72.1,58.4,83.1,2027,No,Club sporting director / first-team office,info@tychywanderers.pl
+40,Modibo Diarra-Coulibaly,MF,25,Mali,Mopti FC,2,72.1,75.2,70.1,2026,No,Club sporting director / first-team office,info@moptifc.ml
+41,Yeferson Hernandez-Martinez,MF,20,Venezuela,Maracaibo United,2,72.1,66.3,76.2,2026,No,Club sporting director / first-team office,info@maracaibounited.ve
+42,Jefferson Suarez,DF,19,Ecuador,Guayaquil SC,2,72.0,69.2,73.9,2026,No,Club sporting director / first-team office,info@guayaquilsc.ec
+43,Otabek Yusupov-Tashkentov,MF,19,Uzbekistan,Andijan Rangers,2,71.9,45.8,97.2,2028,No,Club sporting director / first-team office,info@andijanrangers.uz
+44,Tomas Horak-Prochazka,DF,18,Czechia,Ceske Budejovice Rangers,2,71.9,55.9,85.0,2027,Unknown,Club sporting director / first-team office,info@ceskebudejovicerangers.cz
+45,Daniel Toth,DF,18,Hungary,Szeged United,4,71.8,77.4,68.3,2026,No,Club sporting director / first-team office,info@szegedunited.hu
+46,Szymon Kowalski,FW,23,Poland,Legnica Wanderers,2,71.5,51.8,88.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@legnicawanderers.pl
+47,Franck Kouassi,FW,20,Ivory Coast,Yamoussoukro Rangers,2,71.5,50.0,90.7,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@yamoussoukrorangers.ci
+48,Bakary Sidibe,FW,20,Mali,Mopti United,2,71.2,57.7,81.9,2027,Unknown,Club sporting director / first-team office,info@moptiunited.ml
+49,Ji-ho Lee-Park,MF,22,South Korea,Incheon FC,2,70.9,74.9,68.3,2026,No,Club sporting director / first-team office,info@incheonfc.kr
+50,Duc Hoang-Tran,MF,24,Vietnam,Hai Phong Town,2,70.9,51.8,87.3,2028,No,Club sporting director / first-team office,info@haiphongtown.vn
+51,Oumar Diarra-Coulibaly,FW,22,Mali,Bamako United,2,70.4,63.0,75.8,2027,Unknown,Club sporting director / first-team office,info@bamakounited.ml
+52,Bledi Meta-Shala,FW,20,Albania,Vlore Athletic,3,70.3,69.9,70.5,2026,Unknown,Club sporting director / first-team office,info@vloreathletic.al
+53,Mateo Fernandez,FW,25,Bolivia,Santa Cruz SC,3,70.2,73.5,68.2,2027,Unknown,Club sporting director / first-team office,info@santacruzsc.bo
+54,Bakary Keita,DF,24,Mali,Mopti SC,2,70.2,67.9,71.8,2027,No,Club sporting director / first-team office,info@moptisc.ml
+55,Ronaldo Gonzalez-Perez,GK,24,Venezuela,Valencia FC,3,69.9,75.0,66.7,2026,Unknown,Club sporting director / first-team office,info@valenciafc.ve
+56,Omar Jabbar,DF,18,Iraq,Baghdad United,3,69.9,77.1,65.5,2026,No,Club sporting director / first-team office,info@baghdadunited.iq
+57,Kevin Chirinos,FW,19,Honduras,San Pedro Sula United,2,69.9,45.2,93.5,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@sanpedrosulaunited.hn
+58,Bryan Palacios,MF,19,Honduras,Choluteca City,2,69.8,54.7,82.2,2027,Unknown,Club sporting director / first-team office,info@cholutecacity.hn
+59,Saba Beridze-Lomidze,DF,19,Georgia,Kutaisi Rangers,2,69.6,44.1,94.5,2028,No,Club sporting director / first-team office,info@kutaisirangers.ge
+60,Samuel Mbia-Fotso,MF,19,Cameroon,Douala United,2,69.5,45.2,92.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@doualaunited.cm
+61,Sardor Yusupov-Yuldashev,FW,25,Uzbekistan,Tashkent City,2,69.5,76.3,65.4,2026,No,Club sporting director / first-team office,info@tashkentcity.uz
+62,Dusan Krstic-Petrovic,DF,21,Serbia,Dobanovci United,2,69.3,50.2,86.0,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@dobanovciunited.rs
+63,Jack Taylor-Wilson,MF,20,New Zealand,Auckland Wanderers,2,69.0,59.6,76.2,2027,No,Club sporting director / first-team office,info@aucklandwanderers.nz
+64,Erion Meta-Duro,DF,22,Albania,Elbasan SC,2,69.0,56.9,78.5,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@elbasansc.al
+65,Do-yun Park-Kim,MF,20,South Korea,Gwangju Rangers,2,68.9,44.7,91.9,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@gwangjurangers.kr
+66,Minh Pham-Hoang,DF,24,Vietnam,Da Nang Wanderers,2,68.6,69.6,68.0,2027,No,Club sporting director / first-team office,info@danangwanderers.vn
+67,Kristijan Angelovski-Naumovski,DF,22,North Macedonia,Bitola Town,3,68.5,55.8,78.5,2028,No,Club sporting director / first-team office,info@bitolatown.mk
+68,Gentian Krasniqi-Bardhi,GK,18,Albania,Durres Athletic,2,68.4,59.6,74.9,2026,Unknown,Club sporting director / first-team office,info@durresathletic.al
+69,Jan Keller-Meier,DF,21,Switzerland,Aarau Athletic,4,68.3,57.2,76.9,2028,No,Club sporting director / first-team office,info@aarauathletic.ch
+70,Diyorbek Rustamov-Yuldashev,MF,20,Uzbekistan,Tashkent City,2,68.3,51.3,82.6,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@tashkentcity.uz
+71,Sota Suzuki-Tanaka,DF,19,Japan,Fukuoka Athletic,2,68.2,71.9,65.9,2026,No,Club sporting director / first-team office,info@fukuokaathletic.jp
+72,Kristijan Mitrovski-Stojanovski,MF,25,North Macedonia,Bitola Rovers,2,68.1,65.7,69.7,2027,No,Club sporting director / first-team office,info@bitolarovers.mk
+73,Modibo Sidibe-Camara,DF,26,Mali,Mopti Wanderers,3,68.1,85.1,58.6,2026,No,Club sporting director / first-team office,info@moptiwanderers.ml
+74,Sherzod Rashidov-Tashkentov,GK,26,Uzbekistan,Samarkand Rovers,2,67.8,50.4,82.6,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@samarkandrovers.uz
+75,Serge Kone-Traore,MF,19,Ivory Coast,San Pedro SC,2,67.8,52.5,80.4,2027,Unknown,Club sporting director / first-team office,info@sanpedrosc.ci
+76,Bjarni Sigurdsson,FW,26,Iceland,Hafnarfjordur Athletic,2,67.8,78.5,61.4,2026,No,Club sporting director / first-team office,info@hafnarfjordurathletic.is
+77,Giorgi Lomidze-Kapanadze,GK,20,Georgia,Kutaisi Town,3,67.7,54.2,78.5,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@kutaisitown.ge
+78,Nicolas Silva-Gonzalez,MF,25,Uruguay,Paysandu Rovers,3,67.5,75.1,62.8,2027,No,Club sporting director / first-team office,info@paysandurovers.uy
+79,Karlo Kovacevic-Matic,MF,25,Croatia,Belisce Wanderers,2,67.4,51.5,80.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@beliscewanderers.hr
+80,Santiago Vargas-Rodriguez,MF,20,Bolivia,Oruro Rovers,2,67.2,43.5,89.8,2028,No,Club sporting director / first-team office,info@orurorovers.bo
+81,Nikola Ilic,GK,19,Montenegro,Budva SC,3,67.1,59.2,73.0,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@budvasc.me
+82,Somchai Srisawat-Rattanakosin,MF,21,Thailand,Bangkok Rovers,3,67.1,67.7,66.7,2026,Unknown,Club sporting director / first-team office,info@bangkokrovers.th
+83,Domagoj Horvat,FW,24,Croatia,Zagreb FC,2,66.9,58.4,73.2,2027,Unknown,Club sporting director / first-team office,info@zagrebfc.hr
+84,Szymon Kowalski-Szymanski,MF,23,Poland,Rzeszow FC,2,66.7,59.4,72.1,2027,Unknown,Club sporting director / first-team office,info@rzeszowfc.pl
+85,Hussein Mahmoud-Jabbar,MF,25,Iraq,Erbil City,3,66.6,93.1,53.3,2026,No,Club sporting director / first-team office,info@erbilcity.iq
+86,Kwame Boateng-Asante,FW,19,Ghana,Kumasi SC,2,66.6,41.5,91.3,2028,Unknown,Club sporting director / first-team office,info@kumasisc.gh
+87,Anderson Gonzalez-Hernandez,GK,19,Venezuela,Caracas Athletic,3,66.5,74.1,61.9,2026,No,Club sporting director / first-team office,info@caracasathletic.ve
+88,Nico Muller,FW,19,Switzerland,Aarau Wanderers,4,66.4,81.5,57.9,2026,No,Club sporting director / first-team office,info@aarauwanderers.ch
+89,Levan Beridze-Kapanadze,DF,20,Georgia,Rustavi Wanderers,3,66.2,76.7,60.0,2026,No,Club sporting director / first-team office,info@rustaviwanderers.ge
+90,Sekou Camara,FW,24,Mali,Sikasso FC,4,66.2,83.1,56.8,2027,No,Club sporting director / first-team office,info@sikassofc.ml
+91,Omar Hassan-Abbas,GK,25,Iraq,Erbil Athletic,2,66.1,47.6,82.3,2028,Unknown,Club sporting director / first-team office,info@erbilathletic.iq
+92,Rodrigo Cardozo-Gonzalez,MF,18,Paraguay,Encarnacion Wanderers,2,66.0,57.0,72.8,2027,No,Club sporting director / first-team office,info@encarnacionwanderers.py
+93,Kwabena Boateng-Asante,DF,23,Ghana,Accra Town,2,65.9,67.5,64.8,2026,Unknown,Club sporting director / first-team office,info@accratown.gh
+94,Emiliano Lopez-Ramirez,MF,22,Paraguay,Ciudad del Este SC,2,65.5,47.1,81.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@ciudaddelestesc.py
+95,Emmanuel Appiah-Agyemang,FW,18,Ghana,Tamale Wanderers,2,65.4,58.5,70.5,2027,No,Club sporting director / first-team office,info@tamalewanderers.gh
+96,Moussa Sow-Diop,GK,25,Senegal,Dakar United,2,65.1,70.3,61.9,2027,No,Club sporting director / first-team office,info@dakarunited.sn
+97,Nejc Kranjc-Horvat,MF,22,Slovenia,Maribor Town,2,65.0,70.2,61.8,2026,No,Club sporting director / first-team office,info@maribortown.si
+98,Stefan Ilic-Nikolic,MF,20,Serbia,Nis Rangers,3,65.0,67.0,63.7,2026,Unknown,Club sporting director / first-team office,info@nisrangers.rs
+99,Bence Nagy-Toth,DF,19,Hungary,Kecskemet City,3,64.9,63.5,65.8,2026,Unknown,Club sporting director / first-team office,info@kecskemetcity.hu
+100,Kofi Agyemang-Asante,FW,20,Ghana,Sekondi City,2,64.9,44.8,83.1,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@sekondicity.gh
+101,Tomas Sedlak-Molnar,GK,19,Slovakia,Trnava United,2,64.8,42.4,86.1,2028,No,Club sporting director / first-team office,info@trnavaunited.sk
+102,Devon Lowe-Bailey,DF,23,Jamaica,Kingston Rovers,4,64.8,83.7,54.6,2027,No,Club sporting director / first-team office,info@kingstonrovers.jm
+103,Liam Mitchell-Taylor,MF,18,New Zealand,Auckland Town,2,64.8,65.9,64.0,2026,No,Club sporting director / first-team office,info@aucklandtown.nz
+104,Tim Zupan,GK,23,Slovenia,Ljubljana City,4,64.7,77.7,57.3,2027,Unknown,Club sporting director / first-team office,info@ljubljanacity.si
+105,Franck Toure-Diabate,DF,24,Ivory Coast,San Pedro City,2,64.7,61.4,67.0,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@sanpedrocity.ci
+106,Blaze Ristovski-Angelovski,MF,26,North Macedonia,Bitola SC,4,64.6,71.0,60.7,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@bitolasc.mk
+107,Toni Novak,GK,18,Croatia,Bijelo Brdo City,2,64.6,65.8,63.8,2026,No,Club sporting director / first-team office,info@bijelobrdocity.hr
+108,Kevin Mets-Kask,DF,21,Estonia,Tallinn City,3,64.4,85.6,53.3,2026,No,Club sporting director / first-team office,info@tallinncity.ee
+109,Kaito Watanabe-Sato,MF,24,Japan,Fukuoka FC,2,64.4,45.9,80.7,2028,Unknown,Club sporting director / first-team office,info@fukuokafc.jp
+110,Nika Lomidze,MF,24,Georgia,Kutaisi Town,2,64.3,54.6,71.7,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@kutaisitown.ge
+111,Modibo Sidibe-Traore,GK,24,Mali,Sikasso FC,2,64.1,49.5,76.2,2028,No,Club sporting director / first-team office,info@sikassofc.ml
+112,Luca Frei-Keller,FW,22,Switzerland,Thun Rangers,2,64.0,77.3,56.5,2026,No,Club sporting director / first-team office,info@thunrangers.ch
+113,Nicolas Vargas-Martinez,DF,22,Bolivia,Santa Cruz Rovers,2,64.0,45.3,80.6,2028,No,Club sporting director / first-team office,info@santacruzrovers.bo
+114,Abdoulaye Diop-Faye,FW,18,Senegal,Dakar Town,3,64.0,61.5,65.7,2027,No,Club sporting director / first-team office,info@dakartown.sn
+115,Jose Campos-Castillo,MF,20,Costa Rica,Alajuela Athletic,2,63.9,44.4,81.5,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@alajuelaathletic.cr
+116,Gentian Bardhi-Shala,GK,25,Albania,Tirana United,3,63.9,74.9,57.5,2027,No,Club sporting director / first-team office,info@tiranaunited.al
+117,Bakary Traore-Sidibe,GK,20,Mali,Kayes City,2,63.8,50.7,74.4,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@kayescity.ml
+118,Yeferson Rondon,DF,21,Venezuela,Valencia Wanderers,2,63.6,58.5,67.2,2027,Unknown,Club sporting director / first-team office,info@valenciawanderers.ve
+119,Filip Trajkovski,DF,19,North Macedonia,Bitola SC,3,63.6,48.0,76.7,2028,No,Club sporting director / first-team office,info@bitolasc.mk
+120,Adam Horvath,DF,26,Hungary,Kecskemet SC,2,63.5,66.7,61.4,2027,No,Club sporting director / first-team office,info@kecskemetsc.hu
+121,Jakub Zielinski,FW,23,Poland,Gdynia SC,3,63.4,49.2,75.0,2028,Unknown,Club sporting director / first-team office,info@gdyniasc.pl
+122,Nam Nguyen-Pham,DF,18,Vietnam,Hai Phong City,3,63.0,47.7,75.9,2028,No,Club sporting director / first-team office,info@haiphongcity.vn
+123,Andres Mets-Kukk,GK,21,Estonia,Parnu Wanderers,2,62.9,51.0,72.2,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@parnuwanderers.ee
+124,Samuel Mbia-Ngoy,DF,19,Cameroon,Yaounde Rangers,2,62.8,70.2,58.4,2026,No,Club sporting director / first-team office,info@yaounderangers.cm
+125,Emmanuel Tembo-Zulu,MF,25,Zambia,Kitwe City,3,62.8,71.2,57.8,2027,No,Club sporting director / first-team office,info@kitwecity.zm
+126,Edgars Kalns-Liepa,MF,25,Latvia,Daugavpils United,2,62.8,47.7,75.4,2028,No,Club sporting director / first-team office,info@daugavpilsunited.lv
+127,Sekou Traore-Sidibe,MF,20,Mali,Sikasso SC,3,62.7,56.7,67.1,2027,Unknown,Club sporting director / first-team office,info@sikassosc.ml
+128,Pongsak Srisawat-Sanguan,MF,26,Thailand,Bangkok Rangers,2,62.7,46.9,76.2,2028,No,Club sporting director / first-team office,info@bangkokrangers.th
+129,Janis Ozols,FW,19,Latvia,Daugavpils Wanderers,2,62.7,47.6,75.3,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@daugavpilswanderers.lv
+130,Kittipong Srisawat-Charoensuk,FW,20,Thailand,Chiang Mai Wanderers,2,62.7,65.4,60.9,2026,No,Club sporting director / first-team office,info@chiangmaiwanderers.th
+131,Souleymane Traore-Sidibe,DF,24,Mali,Sikasso FC,2,62.4,48.2,74.1,2028,No,Club sporting director / first-team office,info@sikassofc.ml
+132,Marko Perovic,DF,26,Montenegro,Podgorica SC,3,62.3,53.4,69.0,2028,No,Club sporting director / first-team office,info@podgoricasc.me
+133,Ibrahima Diallo,MF,22,Senegal,Thies City,4,62.1,85.7,50.1,2026,No,Club sporting director / first-team office,info@thiescity.sn
+134,Chai Charoensuk-Boonmee,FW,23,Thailand,Nonthaburi Rovers,3,62.0,51.3,70.4,2028,No,Club sporting director / first-team office,info@nonthaburirovers.th
+135,Marton Molnar-Szabo,DF,26,Hungary,Kecskemet Athletic,2,61.8,36.2,88.3,2029,No,Club sporting director / first-team office,info@kecskemetathletic.hu
+136,Moussa Sow-Ndiaye,DF,24,Senegal,Dakar City,2,61.8,47.5,73.6,2028,No,Club sporting director / first-team office,info@dakarcity.sn
+137,Erion Shala-Hoxha,MF,23,Albania,Vlore Wanderers,3,61.8,72.7,55.4,2027,No,Club sporting director / first-team office,info@vlorewanderers.al
+138,Bakary Camara-Sidibe,MF,24,Mali,Kayes Rangers,2,61.8,48.4,72.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@kayesrangers.ml
+139,Carlos Ramirez-Morales,FW,26,Costa Rica,Heredia Rovers,2,61.7,52.8,68.5,2028,No,Club sporting director / first-team office,info@herediarovers.cr
+140,Otabek Karimov-Rustamov,GK,21,Uzbekistan,Samarkand Rovers,2,61.5,60.2,62.3,2027,No,Club sporting director / first-team office,info@samarkandrovers.uz
+141,Bryan Suarez-Preciado,DF,22,Ecuador,Manta Rovers,2,61.2,51.2,69.1,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@mantarovers.ec
+142,Kwame Owusu-Appiah,FW,19,Ghana,Tamale United,2,61.2,63.0,60.1,2026,No,Club sporting director / first-team office,info@tamaleunited.gh
+143,Uros Ilic-Jovanovic,MF,25,Serbia,Cacak FC,2,61.2,36.0,87.1,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@cacakfc.rs
+144,Igor Ilic-Perovic,FW,19,Montenegro,Podgorica Athletic,2,61.1,61.1,61.2,2026,Unknown,Club sporting director / first-team office,info@podgoricaathletic.me
+145,Damion Reid-Bailey,GK,18,Jamaica,May Pen FC,2,61.1,60.4,61.6,2027,No,Club sporting director / first-team office,info@maypenfc.jm
+146,Sebastian Sanchez-Gonzalez,DF,20,Paraguay,Encarnacion SC,3,61.1,50.1,69.8,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@encarnacionsc.py
+147,Rok Novak-Kovac,MF,22,Slovenia,Koper Town,2,61.0,68.7,56.3,2026,Unknown,Club sporting director / first-team office,info@kopertown.si
+148,Seo-jun Jung-Choi,DF,19,South Korea,Incheon SC,2,60.9,57.8,63.0,2026,Unknown,Club sporting director / first-team office,info@incheonsc.kr
+149,Fidel Torres-Barrios,MF,21,Panama,David Athletic,2,60.9,43.9,75.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@davidathletic.pa
+150,Levan Kiknadze,FW,19,Georgia,Kutaisi Wanderers,3,60.9,71.0,54.9,2026,No,Club sporting director / first-team office,info@kutaisiwanderers.ge
+151,Do-yun Jung-Lee,FW,21,South Korea,Busan Rangers,3,60.8,78.1,51.5,2026,No,Club sporting director / first-team office,info@busanrangers.kr
+152,Damion Reid-Brown,FW,18,Jamaica,May Pen City,3,60.7,46.9,72.0,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@maypencity.jm
+153,Noah Frei-Meier,DF,23,Switzerland,Lucerne Rangers,2,60.6,51.2,67.8,2028,No,Club sporting director / first-team office,info@lucernerangers.ch
+154,Yoon-seo Lee,DF,21,South Korea,Incheon Rangers,4,60.5,74.6,52.6,2027,No,Club sporting director / first-team office,info@incheonrangers.kr
+155,Josip Novak-Matic,DF,20,Croatia,Belisce City,2,60.4,59.7,60.9,2026,Unknown,Club sporting director / first-team office,info@beliscecity.hr
+156,Randall Campos-Vargas,GK,21,Costa Rica,Alajuela Rovers,2,60.3,60.7,60.0,2027,No,Club sporting director / first-team office,info@alajuelarovers.cr
+157,Andri Halldorsson,DF,18,Iceland,Keflavik United,4,60.2,67.8,55.6,2027,No,Club sporting director / first-team office,info@keflavikunited.is
+158,Wilfried Kouassi-Kone,FW,18,Ivory Coast,Abidjan FC,2,60.2,30.2,95.3,2029,No,Club sporting director / first-team office,info@abidjanfc.ci
+159,Marko Kovacevic-Radic,FW,17,Croatia,Medimurje United,3,60.1,32.0,91.5,2026,No,"Club youth/academy office ONLY - player is a minor, do not contact directly",info@medimurjeunited.hr
+160,Matias Sanchez-Lopez,GK,25,Paraguay,Asuncion Town,2,60.0,54.8,63.8,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@asunciontown.py
+161,Mustafa Abbas-Hassan,GK,20,Iraq,Baghdad Athletic,2,60.0,42.7,75.3,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@baghdadathletic.iq
+162,Jose Godoy-Perez,GK,22,Panama,Panama City Town,3,60.0,80.9,49.1,2026,No,Club sporting director / first-team office,info@panamacitytown.pa
+163,Duc Pham-Vu,DF,19,Vietnam,Da Nang SC,2,59.9,55.9,62.7,2027,No,Club sporting director / first-team office,info@danangsc.vn
+164,Vasil Ristovski,DF,18,North Macedonia,Ohrid City,3,59.8,46.5,70.7,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@ohridcity.mk
+165,Yoon-seo Kang,DF,22,South Korea,Daejeon FC,2,59.8,36.6,82.9,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@daejeonfc.kr
+166,Lukas Sedlak,MF,20,Slovakia,Banska Bystrica Town,2,59.8,71.1,53.2,2026,No,Club sporting director / first-team office,info@banskabystricatown.sk
+167,Kevin Quinonez,MF,23,Ecuador,Manta United,4,59.7,78.5,49.7,2026,Unknown,Club sporting director / first-team office,info@mantaunited.ec
+168,Thomas Hofer,DF,20,Austria,Salzburg City,4,59.6,39.3,78.7,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@salzburgcity.at
+169,Milos Krstic-Nikolic,DF,20,Serbia,Cacak Town,2,59.6,56.7,61.6,2027,No,Club sporting director / first-team office,info@cacaktown.rs
+170,Kevin Mejia-Palacios,DF,18,Honduras,Tegucigalpa Rovers,2,59.6,31.5,91.1,2029,No,Club sporting director / first-team office,info@tegucigalparovers.hn
+171,Quang Pham,FW,24,Vietnam,Can Tho City,2,59.5,64.0,56.7,2027,Unknown,Club sporting director / first-team office,info@canthocity.vn
+172,Yeferson Martinez-Rojas,GK,22,Venezuela,Valencia Wanderers,2,59.4,58.1,60.3,2027,Unknown,Club sporting director / first-team office,info@valenciawanderers.ve
+173,Nico Baumann,GK,19,Switzerland,St. Gallen FC,2,59.3,47.9,68.5,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@stgallenfc.ch
+174,Junior Gonzalez-Perez,DF,23,Venezuela,Maracaibo Rovers,3,59.3,81.8,47.9,2027,No,Club sporting director / first-team office,info@maracaiborovers.ve
+175,Andre Njie-Ngoy,FW,23,Cameroon,Douala Town,2,59.2,59.1,59.3,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@doualatown.cm
+176,Bartosz Mazur,MF,18,Poland,Rzeszow Athletic,3,59.1,34.5,84.7,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@rzeszowathletic.pl
+177,Modibo Traore-Sidibe,GK,18,Mali,Sikasso Rovers,3,59.0,73.2,51.1,2026,No,Club sporting director / first-team office,info@sikassorovers.ml
+178,Mwansa Sakala-Mwansa,GK,20,Zambia,Ndola FC,3,58.9,45.9,69.7,2028,No,Club sporting director / first-team office,info@ndolafc.zm
+179,Ousmane Sow-Diallo,MF,26,Senegal,Dakar Rovers,2,58.9,38.7,78.0,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@dakarrovers.sn
+180,Karl Bjornsson,GK,19,Iceland,Hafnarfjordur SC,4,58.9,78.0,48.8,2026,No,Club sporting director / first-team office,info@hafnarfjordursc.is
+181,Vidar Bjornsson-Gudmundsson,MF,22,Iceland,Akureyri Wanderers,2,58.8,45.3,70.1,2028,No,Club sporting director / first-team office,info@akureyriwanderers.is
+182,Domagoj Barisic-Radic,DF,19,Croatia,Bijelo Brdo City,4,58.8,87.8,45.1,2026,No,Club sporting director / first-team office,info@bijelobrdocity.hr
+183,David Moser,MF,21,Austria,Innsbruck Rovers,3,58.8,82.4,47.0,2026,No,Club sporting director / first-team office,info@innsbruckrovers.at
+184,Ante Radic,MF,22,Croatia,Bijelo Brdo Athletic,2,58.8,59.7,58.3,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@bijelobrdoathletic.hr
+185,Andres Mendoza-Preciado,MF,20,Ecuador,Quito Wanderers,2,58.8,51.9,63.8,2027,Unknown,Club sporting director / first-team office,info@quitowanderers.ec
+186,Cheikh Diop-Faye,DF,23,Senegal,Dakar SC,3,58.7,82.9,46.7,2026,No,Club sporting director / first-team office,info@dakarsc.sn
+187,Given Mwansa-Zulu,FW,23,Zambia,Kitwe SC,2,58.6,44.2,70.6,2028,Unknown,Club sporting director / first-team office,info@kitwesc.zm
+188,Bledi Shala-Krasniqi,MF,25,Albania,Shkoder Rovers,2,58.5,69.0,52.4,2026,Unknown,Club sporting director / first-team office,info@shkoderrovers.al
+189,Kelvin Tembo-Sakala,DF,20,Zambia,Ndola Rovers,2,58.5,64.2,54.9,2026,No,Club sporting director / first-team office,info@ndolarovers.zm
+190,Given Phiri,FW,20,Zambia,Livingstone Wanderers,3,58.4,52.0,63.1,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@livingstonewanderers.zm
+191,Karl Mets-Saar,MF,25,Estonia,Tallinn City,3,58.3,53.2,62.0,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@tallinncity.ee
+192,Yves Kouassi-Diabate,DF,23,Ivory Coast,Bouake United,2,58.2,65.0,54.1,2026,Unknown,Club sporting director / first-team office,info@bouakeunited.ci
+193,Dusan Krstic-Milic,MF,20,Serbia,Nis SC,3,58.2,49.3,65.0,2028,No,Club sporting director / first-team office,info@nissc.rs
+194,Otabek Tashkentov-Yuldashev,MF,22,Uzbekistan,Andijan United,3,58.1,45.2,68.8,2028,Unknown,Club sporting director / first-team office,info@andijanunited.uz
+195,Kittipong Sanguan,MF,23,Thailand,Bangkok City,3,58.1,72.8,50.0,2026,Unknown,Club sporting director / first-team office,info@bangkokcity.th
+196,Filip Stojanovski,DF,19,North Macedonia,Ohrid Rangers,2,58.0,65.7,53.4,2026,No,Club sporting director / first-team office,info@ohridrangers.mk
+197,Tomas Balaz-Varga,GK,23,Slovakia,Trnava Town,2,58.0,47.6,66.1,2028,Unknown,Club sporting director / first-team office,info@trnavatown.sk
+198,Minh Le,DF,24,Vietnam,Hai Phong City,2,57.9,36.0,79.5,2029,No,Club sporting director / first-team office,info@haiphongcity.vn
+199,Lukas Gruber,FW,22,Austria,Wels Town,3,57.9,38.6,75.9,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@welstown.at
+200,Noah Taylor-Clarke,DF,26,New Zealand,Hamilton United,3,57.9,72.0,50.0,2026,Unknown,Club sporting director / first-team office,info@hamiltonunited.nz
+201,Irakli Lomidze-Beridze,MF,23,Georgia,Batumi Rangers,3,57.8,50.1,63.6,2028,Unknown,Club sporting director / first-team office,info@batumirangers.ge
+202,Olafur Bjornsson-Sigurdsson,MF,21,Iceland,Selfoss Rangers,2,57.7,67.1,52.2,2026,No,Club sporting director / first-team office,info@selfossrangers.is
+203,Balazs Molnar,FW,24,Hungary,Kecskemet FC,2,57.6,45.3,67.7,2028,No,Club sporting director / first-team office,info@kecskemetfc.hu
+204,Given Zulu-Sakala,MF,18,Zambia,Ndola City,2,57.6,36.7,77.7,2028,Unknown,Club sporting director / first-team office,info@ndolacity.zm
+205,Janis Kalns-Berzins,FW,19,Latvia,Liepaja Rangers,2,57.6,41.2,71.9,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@liepajarangers.lv
+206,Ali Abbas-Salim,GK,21,Iraq,Basra Town,3,57.5,68.7,51.1,2026,Unknown,Club sporting director / first-team office,info@basratown.iq
+207,Kwabena Boateng-Owusu,MF,25,Ghana,Kumasi City,2,57.5,48.3,64.5,2028,No,Club sporting director / first-team office,info@kumasicity.gh
+208,Bruno Silva-Acosta,DF,22,Uruguay,Montevideo Town,4,57.4,73.2,48.8,2027,Unknown,Club sporting director / first-team office,info@montevideotown.uy
+209,Wilfried Traore-Bamba,FW,19,Ivory Coast,San Pedro SC,2,57.4,33.1,82.8,2028,Yes,Go through the player's agent - ask the club to confirm representation first,info@sanpedrosc.ci
+210,Bryan Quinonez-Chavez,FW,23,Ecuador,Cuenca FC,2,57.2,46.1,66.0,2028,No,Club sporting director / first-team office,info@cuencafc.ec
+211,Abdoulaye Faye-Diop,DF,19,Senegal,Thies FC,3,56.9,63.2,53.1,2026,Unknown,Club sporting director / first-team office,info@thiesfc.sn
+212,Saba Kapanadze-Lomidze,GK,21,Georgia,Kutaisi Wanderers,3,56.9,48.4,63.4,2028,No,Club sporting director / first-team office,info@kutaisiwanderers.ge
+213,Eric Fotso-Ngoy,FW,20,Cameroon,Douala Rangers,4,56.9,61.9,53.8,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@doualarangers.cm
+214,Modibo Coulibaly-Keita,MF,18,Mali,Sikasso Rovers,2,56.7,36.4,76.2,2028,Unknown,Club sporting director / first-team office,info@sikassorovers.ml
+215,Michael Hofer-Mayer,DF,18,Austria,Linz Rovers,3,56.6,54.5,58.1,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@linzrovers.at
+216,Bartosz Wojcik-Wisniewski,FW,26,Poland,Rzeszow Rangers,4,56.5,88.2,42.0,2026,No,Club sporting director / first-team office,info@rzeszowrangers.pl
+217,Luka Matic,MF,18,Croatia,Osijek FC,2,56.5,63.2,52.4,2026,No,Club sporting director / first-team office,info@osijekfc.hr
+218,Arturs Liepa-Kalns,MF,18,Latvia,Liepaja SC,2,56.4,47.6,63.2,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@liepajasc.lv
+219,Ondrej Prochazka,FW,17,Czechia,Ceske Budejovice Rangers,2,56.4,28.4,89.2,2026,No,"Club youth/academy office ONLY - player is a minor, do not contact directly",info@ceskebudejovicerangers.cz
+220,Sebastian Lopez-Sanchez,GK,18,Paraguay,Asuncion FC,2,56.3,47.7,63.0,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@asuncionfc.py
+221,Jan Krajnc,FW,22,Slovenia,Maribor Town,2,56.2,29.3,86.9,2029,Unknown,Club sporting director / first-team office,info@maribortown.si
+222,Max Diabate-Traore,MF,24,Ivory Coast,San Pedro Town,2,56.1,30.7,83.8,2029,Unknown,Club sporting director / first-team office,info@sanpedrotown.ci
+223,Ren Suzuki-Takahashi,MF,24,Japan,Sendai Rangers,2,56.0,65.7,50.4,2027,No,Club sporting director / first-team office,info@sendairangers.jp
+224,Stefan Stankovic,GK,18,Serbia,Dobanovci FC,3,55.9,55.0,56.5,2026,Yes,Go through the player's agent - ask the club to confirm representation first,info@dobanovcifc.rs
+225,Sherzod Karimov-Rashidov,DF,18,Uzbekistan,Andijan FC,3,55.8,73.1,46.6,2026,No,Club sporting director / first-team office,info@andijanfc.uz
+226,Bruno Acosta-Ferreira,GK,19,Uruguay,Paysandu United,3,55.7,56.7,55.0,2027,Unknown,Club sporting director / first-team office,info@paysanduunited.uy
+227,Callum Clarke-Mitchell,MF,24,New Zealand,Wellington City,2,55.6,47.6,61.6,2028,Unknown,Club sporting director / first-team office,info@wellingtoncity.nz
+228,Rok Novak-Zupan,GK,22,Slovenia,Ljubljana City,3,55.5,74.4,45.7,2026,Unknown,Club sporting director / first-team office,info@ljubljanacity.si
+229,Nattapong Boonmee-Srisawat,DF,21,Thailand,Khon Kaen Rovers,2,55.3,42.1,66.4,2028,No,Club sporting director / first-team office,info@khonkaenrovers.th
+230,Facundo Gonzalez-Acosta,GK,19,Uruguay,Montevideo FC,2,55.2,38.4,70.3,2028,Unknown,Club sporting director / first-team office,info@montevideofc.uy
+231,Florian Bauer,MF,18,Austria,Klagenfurt Wanderers,3,55.2,57.7,53.6,2027,Unknown,Club sporting director / first-team office,info@klagenfurtwanderers.at
+232,Andres Tamm,MF,18,Estonia,Tartu Rovers,2,55.2,28.3,86.1,2029,Unknown,Club sporting director / first-team office,info@tarturovers.ee
+233,Kaito Ito-Takahashi,DF,20,Japan,Sapporo FC,2,55.2,23.2,98.3,2029,Yes,Go through the player's agent - ask the club to confirm representation first,info@sapporofc.jp
+234,Facundo Acosta-Pereira,DF,19,Uruguay,Paysandu Athletic,3,55.1,56.6,54.1,2027,Unknown,Club sporting director / first-team office,info@paysanduathletic.uy
+235,Christian Mbia,FW,19,Cameroon,Garoua FC,2,55.1,40.9,67.2,2027,Yes,Go through the player's agent - ask the club to confirm representation first,info@garouafc.cm
+236,Silvan Muller-Frei,MF,19,Switzerland,Aarau Wanderers,2,55.0,37.2,71.5,2028,Unknown,Club sporting director / first-team office,info@aarauwanderers.ch
+237,Arturs Kalns-Ozols,DF,24,Latvia,Riga City,3,55.0,54.4,55.4,2028,No,Club sporting director / first-team office,info@rigacity.lv
