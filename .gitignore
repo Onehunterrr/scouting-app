@@ -3,3 +3,6 @@
 
 # Python
 __pycache__/
+
+# Production database dumps -- contain password hashes and TOTP secrets
+prod_backup_*.json

@@ -3398,6 +3398,21 @@ function logout() {
   location.reload();
 }
 
+/* Drop a token the server has stopped accepting -- expired past TOKEN_TTL_HOURS,
+   or signed with a JWT_SECRET that has since been rotated. Without this the app
+   stays "signed in" against a server that 401s every call, and the resulting
+   empty table gets blamed on the filters.
+
+   Deliberately not logout(): that reloads the page, and reloading on every 401
+   turns one expired session into a refresh loop. Clearing in place lets the
+   caller say what actually happened. */
+function clearStaleAuth() {
+  authToken = null;
+  authUser = null;
+  try { localStorage.removeItem(AUTH_KEY); } catch (e) {}
+  setAuthStatus("Session expired -- please sign in again.", "err");
+}
+
 async function initApiMode(meta) {
   apiMeta = meta;
   setApiMode(true);
@@ -4060,6 +4075,10 @@ async function featLoadPlayers() {
   _playersLoading = true;
   const empty = emptyEl;
   if (empty) { empty.textContent = "Loading players…"; empty.style.display = ""; }
+  /* Whatever goes wrong below has to survive the finally, which used to
+     overwrite the message unconditionally -- so even "couldn't load players"
+     was replaced by the filters text before anyone saw it. */
+  let msg = "No players match the current filters. Try widening the age range or clearing a filter.";
   try {
     const r = await apiFetch("/api/players/all");
     if (r.ok) {
@@ -4070,12 +4089,17 @@ async function featLoadPlayers() {
           if (p.id != null) { const k = p.name + "|" + p.country; keyToId[k] = p.id; idToKey[p.id] = k; }
         });
       }
+    } else if (r.status === 401) {
+      clearStaleAuth();
+      msg = "Your session expired. Please sign in again to load the player database.";
+    } else {
+      msg = "Couldn't load players (server said " + r.status + "). Please refresh.";
     }
   } catch (e) {
-    if (empty) empty.textContent = "Couldn't load players. Please refresh.";
+    msg = "Couldn't load players. Please refresh.";
   } finally {
     _playersLoading = false;
-    if (empty) empty.textContent = "No players match the current filters. Try widening the age range or clearing a filter.";
+    if (empty) empty.textContent = msg;
   }
 }
 
