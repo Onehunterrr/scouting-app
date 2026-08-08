@@ -1498,12 +1498,25 @@ let keyToId = {};   // "name|country" -> server player id (API mode)
 let idToKey = {};   // server player id -> "name|country"
 let pageState = { page: 1, size: 50 };
 
-function detectApi() {
+/* When the page was served over http(s) it came *from* api_server.py, so the
+   API is definitionally there and the only question is how long it takes to
+   answer. A container waking from sleep can spend several seconds on boot +
+   the startup seed/migrate pass, and the old flat 1.5s budget gave up long
+   before that -- dropping a perfectly good deployment into offline mode, where
+   accounts and server-side shortlists/notes simply don't appear. Give the
+   served case a real budget and one retry; keep the short budget for the
+   double-clicked file:// copy, where there usually is no server and waiting
+   15s before showing anything would be pure delay. */
+const API_IS_EXPECTED = (typeof location !== "undefined" && location.protocol
+  && location.protocol.indexOf("http") === 0);
+const API_PING_MS = API_IS_EXPECTED ? 15000 : 1500;
+const API_PING_TRIES = API_IS_EXPECTED ? 3 : 1;
+
+function pingApi(timeoutMs) {
   return new Promise(resolve => {
-    if (typeof fetch !== "function") { resolve(null); return; }
     let settled = false;
     const finish = v => { if (!settled) { settled = true; resolve(v); } };
-    setTimeout(() => finish(null), 1500);
+    setTimeout(() => finish(null), timeoutMs);
     try {
       fetch(API_BASE + "/api/meta")
         .then(r => (r && r.ok) ? r.json() : null)
@@ -1511,6 +1524,16 @@ function detectApi() {
         .catch(() => finish(null));
     } catch (e) { finish(null); }
   });
+}
+
+async function detectApi() {
+  if (typeof fetch !== "function") return null;
+  const per = Math.round(API_PING_MS / API_PING_TRIES);
+  for (let i = 0; i < API_PING_TRIES; i++) {
+    const m = await pingApi(per);
+    if (m) return m;
+  }
+  return null;
 }
 
 function apiFetch(path, opts) {
@@ -3983,9 +4006,22 @@ let _playersLoading = false;
 
 async function featLoadPlayers() {
   if (typeof PLAYERS !== "undefined" && PLAYERS.length) return;  // offline build already has data
-  if (!authToken || _playersLoading) return;
+  const emptyEl = document.getElementById("empty-state");
+  if (!authToken) {
+    /* The roster is served by the authed API, not embedded, so a signed-out
+       visitor has no data to show. Say that, instead of leaving the default
+       "no players match the current filters" text up -- it blames the filters
+       for what is really a sign-in state and sends you hunting in the wrong
+       place. */
+    if (emptyEl) {
+      emptyEl.textContent = "Sign in to load the player database.";
+      emptyEl.style.display = "";
+    }
+    return;
+  }
+  if (_playersLoading) return;
   _playersLoading = true;
-  const empty = document.getElementById("empty-state");
+  const empty = emptyEl;
   if (empty) { empty.textContent = "Loading players…"; empty.style.display = ""; }
   try {
     const r = await apiFetch("/api/players/all");

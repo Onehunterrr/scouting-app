@@ -36,9 +36,36 @@ Environment variables:
 
 | Variable       | Default                                   | Purpose                          |
 |----------------|-------------------------------------------|----------------------------------|
-| `DATABASE_URL` | `sqlite:////tmp/scouting_api/scouting.db` | Any SQLAlchemy URL (SQLite or Postgres) |
+| `DATABASE_URL` | see below                                 | Any SQLAlchemy URL (SQLite or Postgres) |
+| `PERSIST_DIR`  | unset                                     | Directory for the SQLite file when `DATABASE_URL` is unset |
 | `JWT_SECRET`   | dev default (change in production!)       | Signs login tokens               |
 | `PORT`         | `8000`                                    | Listen port (`python3 api_server.py`) |
+
+**Where the database lands when `DATABASE_URL` is unset**, in order:
+
+1. `PERSIST_DIR/scouting.db`
+2. `RAILWAY_VOLUME_MOUNT_PATH/scouting.db` (set automatically by Railway when a
+   volume is attached — no config needed)
+3. `/tmp/scouting_api/scouting.db`
+
+Option 3 is the last resort and **is not durable**: `/tmp` is wiped every time
+the container restarts — a redeploy, a crash, or a wake from platform sleep —
+which resets every account, shortlist and note back to the shipped seed. The
+roster still renders (it's embedded in the HTML), so the symptom is "my saved
+data vanished", not a blank page. Startup logs a warning when it happens.
+
+### Persisting data on Railway
+
+Either one works; the code is identical for both.
+
+- **Volume** — service → **Variables/Settings → + Volume**, mount at `/mnt/data`,
+  redeploy. `RAILWAY_VOLUME_MOUNT_PATH` is injected and picked up automatically.
+- **Postgres** — **+ New → Database → Postgres**, then set the app service's
+  `DATABASE_URL` to the reference `${{Postgres.DATABASE_URL}}`. The players table
+  seeds itself on first boot (`_seed_players_if_empty`).
+
+Set `JWT_SECRET` too — on the dev default, tokens signed before a restart stay
+valid, and anyone reading this repo knows the key.
 
 ## 2. Run with docker-compose (Postgres included)
 

@@ -48,6 +48,27 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SQLITE_DIR = "/tmp/scouting_api"
 DEFAULT_DB_URL = f"sqlite:///{DEFAULT_SQLITE_DIR}/scouting.db"
 SEED_DB = os.path.join(BASE_DIR, "scouting.db")
+
+
+def default_db_url():
+    """Where to put the database when DATABASE_URL isn't set.
+
+    /tmp is wiped whenever the container restarts (redeploy, crash, or a
+    platform sleep/wake), which silently resets every account, shortlist and
+    note back to the shipped seed. If the host gave us a persistent mount,
+    use it instead so that data actually survives a restart.
+
+    RAILWAY_VOLUME_MOUNT_PATH is set by Railway when a volume is attached;
+    PERSIST_DIR is a generic escape hatch for any other host. Falls back to
+    the old /tmp path so local runs and tests are unchanged.
+    """
+    mount = (os.environ.get("PERSIST_DIR")
+             or os.environ.get("RAILWAY_VOLUME_MOUNT_PATH"))
+    if mount:
+        # Always build the URL with forward slashes -- os.path.join would emit
+        # a backslash on Windows and corrupt the sqlite path.
+        return f"sqlite:///{mount.replace(chr(92), '/').rstrip('/')}/scouting.db"
+    return DEFAULT_DB_URL
 HTML_FILE = os.path.join(BASE_DIR, "Scouting_App_Prototype.html")
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me-in-prod")
@@ -136,7 +157,10 @@ def init_db(url=None):
     """(Re-)initialise the engine + player cache. Tests call this with their
     own URL; normal startup uses env DATABASE_URL or the sqlite default."""
     global engine, _raw_players, _scored_cache
-    url = url or os.environ.get("DATABASE_URL", DEFAULT_DB_URL)
+    url = url or os.environ.get("DATABASE_URL") or default_db_url()
+    if url.startswith("sqlite:///") and "/tmp/" in url:
+        print("[init_db] WARNING: database lives under /tmp and will be erased "
+              "on the next restart. Attach a volume or set DATABASE_URL.")
     _seed_sqlite_if_needed(url)
     engine = create_engine(url, future=True)
     metadata.create_all(engine, checkfirst=True)
@@ -169,6 +193,26 @@ def get_scored(weights=None):
 
 
 init_db()
+
+
+def warm_caches():
+    """Load and score the roster during boot instead of on the first request.
+
+    get_players()/get_scored() are lazy, so without this the first visitor
+    after every container start pays for reading 5,000 rows and scoring them.
+    Doing it here spends that time while the platform is already waiting on
+    the health check, which is time nobody is watching. Never fatal: a failure
+    here just restores the old lazy behaviour.
+    """
+    if os.environ.get("SKIP_WARMUP"):
+        return
+    try:
+        get_scored()
+    except Exception as exc:
+        print(f"[warmup] skipped: {exc}")
+
+
+warm_caches()
 
 app = FastAPI(title="Scouting API", version="1.0")
 app.add_middleware(
