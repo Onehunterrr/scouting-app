@@ -77,7 +77,9 @@ TOKEN_TTL_HOURS = int(os.environ.get("TOKEN_TTL_HOURS", "168"))
 MFA_CHALLENGE_TTL_MINUTES = 5
 MFA_ISSUER = os.environ.get("MFA_ISSUER", "ScoutEdge")
 
-MAX_PAGE_SIZE = 2000
+# Large enough for the client's "All" page size to return the whole roster in
+# one request; 2000 silently truncated a 5,000-player view to its first 2,000.
+MAX_PAGE_SIZE = 10000
 
 engine = None
 _raw_players = None          # list of camelCase dicts straight from the DB
@@ -418,6 +420,8 @@ def list_players(
     hasAgent: str | None = None,
     q: str | None = None,
     ids: str | None = None,
+    minValue: int | None = Query(default=None, ge=0),
+    maxValue: int | None = Query(default=None, ge=0),
     sort: str = "undervaluedScore",
     dir: str = "desc",
     page: int = Query(default=1, ge=1),
@@ -453,6 +457,16 @@ def list_players(
             continue
         if id_set is not None and p.get("id") not in id_set:
             continue
+        # Value band filters on displayMarketValue -- the figure the table
+        # actually shows -- so a player with no recorded value is matched on
+        # the model's estimate rather than on a raw 0 that would drop every
+        # estimated player out of every band.
+        if minValue is not None or maxValue is not None:
+            v = p.get("displayMarketValue") or 0
+            if minValue is not None and v < minValue:
+                continue
+            if maxValue is not None and v > maxValue:
+                continue
         if ql and not (ql in p["name"].lower() or ql in p["club"].lower()
                        or ql in p["country"].lower()):
             continue

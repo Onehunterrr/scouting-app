@@ -125,6 +125,45 @@ def test_filters():
     assert stacked["total"] <= only_pos["total"]
 
 
+def test_value_band_filter():
+    lo, hi = 60_000, 120_000
+    d = authed_get("/api/players", minValue=lo, maxValue=hi, pageSize=10000).json()
+    assert d["total"] > 0
+    assert d["total"] == len(d["items"]), "band must fit in one page for this check"
+    assert all(lo <= p["displayMarketValue"] <= hi for p in d["items"])
+
+    # The band is taken on the displayed value, so players with no recorded
+    # value are matched on the model's estimate -- not dropped as a raw 0.
+    assert any(p["marketValueEstimated"] for p in d["items"])
+
+    # One-sided bounds work independently.
+    only_min = authed_get("/api/players", minValue=lo, pageSize=10000).json()
+    only_max = authed_get("/api/players", maxValue=hi, pageSize=10000).json()
+    assert all(p["displayMarketValue"] >= lo for p in only_min["items"])
+    assert all(p["displayMarketValue"] <= hi for p in only_max["items"])
+    assert only_min["total"] >= d["total"] and only_max["total"] >= d["total"]
+
+    # An empty band returns nothing rather than everything.
+    assert authed_get("/api/players", minValue=hi, maxValue=lo).json()["total"] == 0
+
+    # Composes with the other filters instead of replacing them.
+    stacked = authed_get("/api/players", minValue=lo, maxValue=hi, position="GK",
+                         pageSize=10000).json()
+    assert all(p["position"] == "GK" and lo <= p["displayMarketValue"] <= hi
+               for p in stacked["items"])
+    assert stacked["total"] <= d["total"]
+
+    assert authed_get("/api/players", minValue=-1).status_code == 422
+
+
+def test_all_page_size_returns_whole_roster():
+    """The client's "All" option asks for API_ALL_PAGE_SIZE (10000) in one page;
+    the old 2000 ceiling rejected that outright and truncated the view."""
+    d = authed_get("/api/players", pageSize=10000).json()
+    assert d["total"] == TOTAL and len(d["items"]) == TOTAL
+    assert authed_get("/api/players", pageSize=10001).status_code == 422
+
+
 def test_search_q_matches_name_club_country():
     all_players = authed_get("/api/players", pageSize=2000).json()["items"]
     target = all_players[0]

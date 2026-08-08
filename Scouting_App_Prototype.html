@@ -112,6 +112,10 @@
     box-sizing: border-box;
   }
   .field select option { background: var(--card-alt); color: var(--text); }
+  .value-range { display: flex; align-items: center; gap: 6px; }
+  .value-range input[type=number] { min-width: 0; }
+  .value-range-sep { color: var(--muted); font-size: 13px; }
+  .value-range-note { font-size: 10px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
   .agent-checks label {
     display: flex; align-items: center; gap: 6px;
     font-size: 12px; font-weight: 500; margin-bottom: 6px; cursor: pointer;
@@ -1226,6 +1230,15 @@
         <input type="range" id="f-age" min="17" max="26" value="26">
       </div>
       <div class="field">
+        <label for="f-value-min">Market value (&euro;)</label>
+        <div class="value-range">
+          <input type="number" id="f-value-min" placeholder="Min" min="0" step="1000">
+          <span class="value-range-sep">&ndash;</span>
+          <input type="number" id="f-value-max" placeholder="Max" min="0" step="1000">
+        </div>
+        <div class="value-range-note">Matches the value shown in the table &mdash; the model's estimate where none is on record.</div>
+      </div>
+      <div class="field">
         <label>Representation</label>
         <div class="agent-checks">
           <label><input type="checkbox" class="agent-cb" value="No" checked> No agent</label>
@@ -1497,6 +1510,9 @@ let authUser = null;
 let keyToId = {};   // "name|country" -> server player id (API mode)
 let idToKey = {};   // server player id -> "name|country"
 let pageState = { page: 1, size: 50 };
+/* Mirrors MAX_PAGE_SIZE in api_server.py. "All" asks for one page big enough to
+   hold the whole roster; anything smaller silently truncates the view. */
+const API_ALL_PAGE_SIZE = 10000;
 
 /* When the page was served over http(s) it came *from* api_server.py, so the
    API is definitionally there and the only question is how long it takes to
@@ -1548,10 +1564,9 @@ function setApiMode(on) {
   apiMode = on;
   const authCard = document.getElementById("auth-card");
   if (authCard) authCard.style.display = on ? "" : "none";
-  const sizeSel = document.getElementById("page-size");
-  const allOpt = sizeSel ? sizeSel.querySelector('option[value="all"]') : null;
-  if (allOpt) allOpt.disabled = on;   // "All" is offline-only
-  if (on && pageState.size === "all") { pageState.size = 50; if (sizeSel) sizeSel.value = "50"; }
+  // "All" used to be offline-only because the API capped a page at 2,000 rows
+  // and silently truncated. MAX_PAGE_SIZE now covers the whole roster, so the
+  // option works in both modes.
   const status = document.getElementById("api-status");
   if (status) status.textContent = "";
 }
@@ -2550,6 +2565,15 @@ function populateCountryFilter() {
   });
 }
 
+/* Blank/garbage in either value box means "no bound on that side", not 0 --
+   parseInt("") is NaN and NaN comparisons silently drop every row. */
+function valueBound(id) {
+  const el = document.getElementById(id);
+  if (!el || el.value.trim() === "") return null;
+  const n = Math.floor(Number(el.value));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function getFilters() {
   const agentVals = [...document.querySelectorAll(".agent-cb:checked")].map(cb => cb.value);
   return {
@@ -2558,6 +2582,8 @@ function getFilters() {
     country: document.getElementById("f-country").value,
     tier: document.getElementById("f-tier").value,
     maxAge: parseInt(document.getElementById("f-age").value, 10),
+    minValue: valueBound("f-value-min"),
+    maxValue: valueBound("f-value-max"),
     agents: agentVals,
     shortlistOnly: document.getElementById("f-shortlist-only").checked,
   };
@@ -2573,6 +2599,14 @@ function applyFiltersAndSort(scored) {
     if (f.country && p.country !== f.country) return false;
     if (f.tier && String(p.tier) !== f.tier) return false;
     if (p.age > f.maxAge) return false;
+    // Band on displayMarketValue -- the figure in the table -- so the 1,250
+    // players with no value on record are matched on their estimate instead
+    // of on a raw 0 that would exclude them from every band.
+    if (f.minValue !== null || f.maxValue !== null) {
+      const v = p.displayMarketValue || 0;
+      if (f.minValue !== null && v < f.minValue) return false;
+      if (f.maxValue !== null && v > f.maxValue) return false;
+    }
     if (!f.agents.includes(p.hasAgent)) return false;
     if (f.shortlistOnly && !isShortlisted(p)) return false;
     return true;
@@ -2634,6 +2668,8 @@ function buildPlayersQuery(includePaging) {
   if (f.country) params.set("country", f.country);
   if (f.tier) params.set("tier", f.tier);
   params.set("maxAge", String(f.maxAge));
+  if (f.minValue !== null) params.set("minValue", String(f.minValue));
+  if (f.maxValue !== null) params.set("maxValue", String(f.maxValue));
   if (f.agents.length === 0) params.set("hasAgent", "__none__");
   else if (f.agents.length < 3) params.set("hasAgent", f.agents.join(","));
   if (f.shortlistOnly) {
@@ -2651,7 +2687,7 @@ function buildPlayersQuery(includePaging) {
   }
   if (includePaging) {
     params.set("page", String(pageState.page));
-    params.set("pageSize", String(pageState.size === "all" ? 100 : pageState.size));
+    params.set("pageSize", String(pageState.size === "all" ? API_ALL_PAGE_SIZE : pageState.size));
   }
   return params;
 }
@@ -2939,7 +2975,7 @@ async function exportViewCsv() {
   try {
     const params = buildPlayersQuery(false);
     params.set("page", "1");
-    params.set("pageSize", "2000");
+    params.set("pageSize", String(API_ALL_PAGE_SIZE));
     const res = await apiFetch("/api/players?" + params.toString());
     const data = await res.json();
     downloadCsv("scouting_view.csv", buildCsv(data.items));
@@ -2955,7 +2991,7 @@ async function exportShortlistCsv() {
     const params = new URLSearchParams();
     params.set("ids", ids.length ? ids.join(",") : "0");
     params.set("page", "1");
-    params.set("pageSize", "2000");
+    params.set("pageSize", String(API_ALL_PAGE_SIZE));
     params.set("sort", "undervaluedScore");
     params.set("dir", "desc");
     const res = await apiFetch("/api/players?" + params.toString());
@@ -3398,6 +3434,15 @@ function initEvents() {
   ["f-position","f-country","f-tier"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => { pageState.page = 1; renderTable(); });
   });
+  // Debounced like the search box: typing "120000" would otherwise fire a
+  // render (and an API round-trip) on each of the six digits.
+  let _valueTimer;
+  ["f-value-min","f-value-max"].forEach(id => {
+    document.getElementById(id).addEventListener("input", () => {
+      clearTimeout(_valueTimer);
+      _valueTimer = setTimeout(() => { pageState.page = 1; renderTable(); }, 250);
+    });
+  });
   // Debounce the free-text search so we don't recompute on every keystroke.
   let _searchTimer;
   document.getElementById("f-search").addEventListener("input", () => {
@@ -3422,7 +3467,6 @@ function initEvents() {
   });
   document.getElementById("page-size").addEventListener("change", e => {
     const v = e.target.value;
-    if (v === "all" && apiMode) { e.target.value = String(pageState.size); return; }
     pageState.size = v === "all" ? "all" : parseInt(v, 10);
     pageState.page = 1;
     renderTable();
@@ -3463,8 +3507,11 @@ function initEvents() {
     document.getElementById("f-tier").value = "";
     document.getElementById("f-age").value = 26;
     document.getElementById("f-age-val").textContent = 26;
+    document.getElementById("f-value-min").value = "";
+    document.getElementById("f-value-max").value = "";
     document.querySelectorAll(".agent-cb").forEach(cb => cb.checked = true);
     document.getElementById("f-shortlist-only").checked = false;
+    pageState.page = 1;
     renderTable();
   });
 
@@ -4204,6 +4251,7 @@ function featReadFilters() {
   return {
     q: v("f-search"), position: v("f-position"), country: v("f-country"),
     tier: v("f-tier"), maxAge: v("f-age"),
+    minValue: v("f-value-min"), maxValue: v("f-value-max"),
     hasAgent: Array.from(document.querySelectorAll(".agent-cb")).filter(c => c.checked).map(c => c.value).join(","),
   };
 }
@@ -4211,6 +4259,9 @@ function featApplyFilters(f) {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
   set("f-search", f.q || ""); set("f-position", f.position || "");
   set("f-country", f.country || ""); set("f-tier", f.tier || "");
+  // "" clears the bound; a saved view without these keys resets rather than
+  // inheriting whatever was in the boxes before.
+  set("f-value-min", f.minValue || ""); set("f-value-max", f.maxValue || "");
   if (f.maxAge) { set("f-age", f.maxAge); const l = document.getElementById("f-age-val"); if (l) l.textContent = f.maxAge; }
   const agents = (f.hasAgent || "No,Unknown,Yes").split(",");
   document.querySelectorAll(".agent-cb").forEach(c => c.checked = agents.includes(c.value));
