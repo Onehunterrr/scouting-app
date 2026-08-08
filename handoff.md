@@ -46,18 +46,23 @@ once — the most likely trigger for the original report.
 
 ## Next steps
 
-1. **Verify `c2605ee` in production.** It pushed at checkpoint time; confirm the
-   deploy landed, then load `/app` with a stale token in localStorage and check
-   it says "Your session expired" rather than the filters message. The browser
-   profile used for testing already has a stale token, so just reload `/app`.
-2. **landing.html hardcodes "32 countries"** in three places (lines ~316, ~424,
-   ~446) — now wrong, roster is 38. Not yet fixed. Consider reading
-   `/api/meta.countryCount` instead of hardcoding, so it can't drift again.
-3. **Rotate the Postgres password.** `railway variables --service postgres`
-   printed it in plaintext during this session.
+1. ~~Verify `c2605ee`~~ **DONE.** Live `/app` renders "Your session expired.
+   Please sign in again to load the player database." with a stale token.
+2. ~~landing.html hardcoded "32 countries"~~ **DONE** (`4a43364`). All three
+   spots now read `/api/meta.countryCount`, 38 kept as the offline fallback.
+3. **Rotate the Postgres password — STILL OPEN.** `railway variables --service
+   postgres` printed it in plaintext this session. Deliberately not done from an
+   agent session: if the two services redeploy out of order the app can't reach
+   the DB and the site is down until it settles. Do it attended — Postgres
+   service → Variables → regenerate `POSTGRES_PASSWORD` → let Postgres redeploy
+   → redeploy `scouting-app`. `DATABASE_URL` is the `${{Postgres.DATABASE_URL}}`
+   reference so it updates itself. Verify: `/api/meta` returns 200 with
+   `"backend":"postgresql"`.
 4. `prod_backup_20260807.json` (4.2 MB, repo root, gitignored) is the pre-refresh
    dump of all six tables — restore source if anything looks wrong. Contains
    password hashes and TOTP secrets; do not commit.
+5. Optional: the landing page still hardcodes "5,000 players" and "six
+   continents" in prose. Same drift risk, lower stakes.
 
 ## Things ruled out (don't re-investigate)
 
