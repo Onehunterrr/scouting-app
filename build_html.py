@@ -2896,25 +2896,13 @@ function updatePager(total, pages) {
   document.getElementById("page-next").disabled = pageState.page >= pages;
 }
 
-function renderRows(rows) {
-  const tbody = document.getElementById("table-body");
-  tbody.innerHTML = "";
-
-  document.getElementById("empty-state").style.display = rows.length ? "none" : "block";
-  document.getElementById("player-table").style.display = rows.length ? "table" : "none";
-
-  const newestBatch = latestDateAdded();
-  currentRows = rows;
-  kbIndex = -1;
-
-  rows.forEach(p => {
-    const tr = document.createElement("tr");
-    tr.tabIndex = 0;
-    const isNew = p.dateAdded === newestBatch;
-    const pk = playerKey(p);
-    const starred = isShortlisted(p);
-    const compareChecked = compareSet.has(pk) ? "checked" : "";
-    tr.innerHTML = `
+/* One row's markup. Kept pure (player -> HTML string) so the whole table can be
+   built as a single string and handed to the parser in one go. */
+function rowHtml(p, idx, newestBatch) {
+  const isNew = p.dateAdded === newestBatch;
+  const starred = isShortlisted(p);
+  const compareChecked = compareSet.has(playerKey(p)) ? "checked" : "";
+  return `<tr tabindex="0" data-idx="${idx}">
       <td><button class="star-btn ${starred ? 'saved' : ''}" title="Toggle shortlist">${starred ? '★' : '☆'}</button></td>
       <td><input type="checkbox" class="compare-cb" title="Add to comparison" ${compareChecked}></td>
       <td class="name">${p.name}${isNew ? '<span class="new-badge">NEW</span>' : ''}</td>
@@ -2927,32 +2915,70 @@ function renderRows(rows) {
       <td>${p.contractExpires}</td>
       <td class="uv-score ${p.undervaluedScore >= 0 ? 'uv-pos' : 'uv-neg'}">${p.undervaluedScore.toFixed(1)}</td>
       <td>${p.flag ? `<span class="badge ${flagClass(p.flag)}">${p.flag}</span>` : `<span class="badge none">--</span>`}</td>
-    `;
-    tr.addEventListener("click", e => {
-      if (e.target.closest(".star-btn") || e.target.closest(".compare-cb")) return;
-      openModal(p);
-    });
-    tr.querySelector(".star-btn").addEventListener("click", e => {
-      e.stopPropagation();
+    </tr>`;
+}
+
+/* Row interaction is delegated to the tbody and bound exactly once. The old
+   code attached four listeners to every row and appended each <tr> to the live
+   table one at a time; at 5,000 rows that meant 20,000 listeners and 5,000
+   separate insertions, and it locked the tab for ~10 seconds. Delegation also
+   means a re-render costs nothing in listener setup. */
+let rowEventsBound = false;
+
+function rowPlayer(el) {
+  const tr = el.closest("tr[data-idx]");
+  return tr ? currentRows[Number(tr.dataset.idx)] : null;
+}
+
+function bindRowEvents(tbody) {
+  if (rowEventsBound) return;
+  rowEventsBound = true;
+
+  tbody.addEventListener("click", e => {
+    const p = rowPlayer(e.target);
+    if (!p) return;
+    if (e.target.closest(".star-btn")) {
       toggleShortlist(p);
       renderTable();
-    });
-    tr.querySelector(".compare-cb").addEventListener("click", e => e.stopPropagation());
-    tr.querySelector(".compare-cb").addEventListener("change", e => {
-      if (e.target.checked) {
-        if (compareSet.size >= COMPARE_MAX) {
-          e.target.checked = false;
-          alert("You can compare up to " + COMPARE_MAX + " players at once. Uncheck one first.");
-          return;
-        }
-        compareSet.add(pk);
-      } else {
-        compareSet.delete(pk);
-      }
-      updateCompareBar();
-    });
-    tbody.appendChild(tr);
+      return;
+    }
+    if (e.target.closest(".compare-cb")) return;  // the change handler owns this
+    openModal(p);
   });
+
+  tbody.addEventListener("change", e => {
+    const cb = e.target.closest(".compare-cb");
+    if (!cb) return;
+    const p = rowPlayer(cb);
+    if (!p) return;
+    const pk = playerKey(p);
+    if (cb.checked) {
+      if (compareSet.size >= COMPARE_MAX) {
+        cb.checked = false;
+        alert("You can compare up to " + COMPARE_MAX + " players at once. Uncheck one first.");
+        return;
+      }
+      compareSet.add(pk);
+    } else {
+      compareSet.delete(pk);
+    }
+    updateCompareBar();
+  });
+}
+
+function renderRows(rows) {
+  const tbody = document.getElementById("table-body");
+
+  document.getElementById("empty-state").style.display = rows.length ? "none" : "block";
+  document.getElementById("player-table").style.display = rows.length ? "table" : "none";
+
+  const newestBatch = latestDateAdded();
+  currentRows = rows;
+  kbIndex = -1;
+
+  bindRowEvents(tbody);
+  // One string, one parse, one reflow -- the whole point of the rewrite.
+  tbody.innerHTML = rows.map((p, i) => rowHtml(p, i, newestBatch)).join("");
 }
 
 /* ---------------------------------------------------------------------

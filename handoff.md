@@ -1,84 +1,126 @@
-# Handoff — production data not rendering (Railway)
+# Handoff — market-value filter shipped; row-render rewrite needs browser verification
 
-Checkpoint at ~151k tokens. Original report: "my data on the railway website is
-not being presented."
+Checkpoint at ~153k tokens. Original report: "I can't see all 5000 players, and
+no players are valued between 60-100k."
 
-## Deployment facts (discovered, not assumed)
+## What the report actually was (resolved)
 
-- Railway project `appealing-surprise` / env `production`, service `scouting-app`
-- URL: https://scouting-app-production-2cd2.up.railway.app
-  (`/` = landing.html, `/app` = the app, `/api/...` = REST)
-- **Already on Postgres**, not SQLite: `DATABASE_URL` is set to the internal
-  `postgres.railway.internal` URL. `JWT_SECRET` is set to a strong random value.
-- Railway CLI is installed and authenticated as huntercrossman7@gmail.com.
-  `railway variables --service postgres --json` yields `DATABASE_PUBLIC_URL`
-  (sakura.proxy.rlwy.net), which is reachable from this machine.
-- Auto-deploy on push to `main` is ON. `railway redeploy` re-runs the *existing*
-  image and does NOT pick up new commits — use a push, or `railway up`.
+Neither was a data problem. 2,245 of the 5,000 players sit in the 60k-120k band.
+Two UI limits hid them:
 
-## Two real bugs, both fixed
+- **No market-value filter existed at all.** Filters were position/country/tier/
+  age/agent/search only. The default sort (Undervalued Score desc) ranks *low*
+  market value first by construction, so the cheap end filled every page anyone
+  actually scrolled.
+- **"All" was disabled in API mode**, capping the view at 100 rows/page, because
+  `MAX_PAGE_SIZE` was 2000 and a larger page was rejected outright.
 
-**1. Production roster was stale (fixed, verified).** Production held the old
-32-country roster; local `scouting.db` has 38. `_seed_players_if_empty` only
-seeds an *empty* table, so every roster change since Postgres was first seeded
-was a silent no-op. This is structural — it will recur on the next roster change.
-Fixed by `refresh_prod_players.py` (committed): replaces only `players`, remaps
-shortlist + ledger player ids through (name, country), one transaction, aborts on
-bad post-write counts. Ran it: 38 countries live, 12 users / 9 shortlists intact,
-9/9 and 5/5 references remapped, none dropped.
+## Shipped and verified live (commit `2ca8da6`, deployed SUCCESS)
 
-**2. Stale sessions render an empty table (fixed, NOT yet verified in prod).**
-Any token the server rejects — expired past TOKEN_TTL_HOURS=168, or signed with a
-since-rotated JWT_SECRET — left `authToken` truthy, so the app believed it was
-signed in, 401'd on every call, and showed an empty table under "No players match
-the current filters." Confirmed live in the browser: 7 requests on `/app`, 6 were
-401. Setting JWT_SECRET at some point would have invalidated everyone's token at
-once — the most likely trigger for the original report.
+- `minValue`/`maxValue` on `GET /api/players`; Min/Max inputs in the filter
+  panel (debounced 250ms, saved with views, cleared by Reset).
+- **Both sides band on `displayMarketValue`, not the raw column.** 1,250 players
+  have no value on record; banding on the raw 0 would drop every one of them out
+  of every band even though the table shows them an estimate. Do not "simplify"
+  this to `marketValue`.
+- `MAX_PAGE_SIZE` 2000 -> 10000, mirrored client-side as `API_ALL_PAGE_SIZE`.
+  Re-enables "All" in API mode and stops both CSV exports truncating at 2000.
+- Live check, signed in: min 60000 / max 120000 -> **2,245 players, 92 high
+  priority, 602 shown on estimate**, values spanning EUR 60,009-119,976, zero
+  outside the band. Exactly matches the locally computed CSV.
+- `players_60k_120k.csv` (2,245 rows) + `export_value_band.py` to regenerate any
+  band. Run it with `DATABASE_URL="sqlite:///./scouting.db"` — without that it
+  silently falls back to a throwaway sqlite under /tmp with a *different* roster
+  (it returned 5,002 players the first time and I nearly believed it).
 
-## Commits (all pushed to origin/main)
+## UNCOMMITTED-TO-PROD WORK IN FLIGHT — read this first
 
-- `d9e81cd` persistence + cold-start: `default_db_url()` (PERSIST_DIR →
-  RAILWAY_VOLUME_MOUNT_PATH → /tmp), boot-time cache warmup (SKIP_WARMUP=1 opts
-  out), detectApi 15s/3 retries when served over http(s) vs 1.5s for file://
-- `8a25712` track platform docs + sample call list
-- `c2605ee` clearStaleAuth() on 401 + fix the finally block that overwrote every
-  empty-state message; add refresh_prod_players.py
+`renderRows` in `build_html.py` was rewritten to fix a real performance problem:
+**"All" on the unfiltered roster took 13.1s and froze the tab.** Measured split:
+2.8s for the API round-trip (18 MB payload), ~10s building DOM.
 
-## Next steps
+The old code did `createElement` + `innerHTML` + 4 `addEventListener` +
+`appendChild` per row — 20,000 listeners and 5,000 live insertions. Replaced
+with `rowHtml(p, idx, newestBatch)` (pure player -> string), one
+`tbody.innerHTML = rows.map(...).join("")`, and event delegation on the tbody
+bound once via `bindRowEvents()` / `rowEventsBound`. Rows carry `data-idx` into
+`currentRows`; `rowPlayer(el)` resolves a row back to its player.
 
-1. ~~Verify `c2605ee`~~ **DONE.** Live `/app` renders "Your session expired.
-   Please sign in again to load the player database." with a stale token.
-2. ~~landing.html hardcoded "32 countries"~~ **DONE** (`4a43364`). All three
-   spots now read `/api/meta.countryCount`, 38 kept as the offline fallback.
-3. **Rotate the Postgres password — STILL OPEN.** `railway variables --service
-   postgres` printed it in plaintext this session. Deliberately not done from an
-   agent session: if the two services redeploy out of order the app can't reach
-   the DB and the site is down until it settles. Do it attended — Postgres
-   service → Variables → regenerate `POSTGRES_PASSWORD` → let Postgres redeploy
-   → redeploy `scouting-app`. `DATABASE_URL` is the `${{Postgres.DATABASE_URL}}`
-   reference so it updates itself. Verify: `/api/meta` returns 200 with
-   `"backend":"postgresql"`.
-4. `prod_backup_20260807.json` (4.2 MB, repo root, gitignored) is the pre-refresh
-   dump of all six tables — restore source if anything looks wrong. Contains
-   password hashes and TOTP secrets; do not commit.
-5. Optional: the landing page still hardcodes "5,000 players" and "six
-   continents" in prose. Same drift risk, lower stakes.
+Also fixed two malformed `<\span>` closing tags that browsers were silently
+recovering from.
 
-## Things ruled out (don't re-investigate)
+**State: committed locally, NOT pushed.** Build regenerates, JS parses under
+`node --check`, `test_api.py` is 38/38. But the row *interactions* are not
+browser-verified, and auto-deploy fires on push, so it must not go out untested.
 
-Volume/`/tmp` wipe (never applied — it's on Postgres), plan upgrade, container
-size, player count, custom domain, cold starts. `/api/meta` answers in 0.37s.
-Acquirability/deal scores are computed in Python, not stored, so they were never
-stale.
+### Next step — verify these four things, then push
+
+Open the app (local file or a deploy) and confirm:
+1. Clicking a row opens the player modal.
+2. The star toggles the shortlist and the row re-renders starred.
+3. The compare checkbox adds to the compare bar, does NOT open the modal, and
+   still enforces `COMPARE_MAX`.
+4. Keyboard nav (j/k or arrows) still focuses rows — `setKbFocus` indexes
+   `document.querySelectorAll("#table-body tr")` by DOM position, which must
+   stay in step with `currentRows`.
+
+Then re-measure "All" unfiltered. Expect well under 13s; if the DOM build is
+still slow, the remaining fix is row virtualization, not more micro-tuning.
+
+## Still open (user asked for "all changes"; these are the rest)
+
+1. **500/page option** — not added. Was offered as the cheap alternative to the
+   render rewrite; the rewrite may make it unnecessary. Page-size select is at
+   the `<option value="all">` block in `build_html.py`.
+2. **Landing page prose** still hardcodes "5,000 players" and "six continents".
+   Same drift risk that already bit the country count — fix the same way, read
+   `/api/meta` (`4a43364` is the pattern to copy).
+3. **Test deps never installed**: `gen_test.py` needs `openpyxl`;
+   `test_app.js` / `smoke_test_v4.js` need `jsdom`. Both pre-existing.
+
+## Two things I could NOT do — they need you, not an agent
+
+- **Commit `2ca8da6`'s subject line is a stray `@`.** I used PowerShell
+  here-string syntax in a bash shell. Amending worked locally but the
+  force-push was rejected: `main` is a protected branch. Fixing it means
+  temporarily lifting branch protection — your call. Body of the message is
+  intact; only the summary line is wrong. Local was reset back in sync.
+- **Rotate the Postgres password — STILL OPEN** (carried over, pre-dates this
+  work). It was printed in plaintext by `railway variables --service postgres`
+  in an earlier session. Do it attended: Postgres service -> Variables ->
+  regenerate `POSTGRES_PASSWORD` -> let Postgres redeploy -> redeploy
+  `scouting-app`. `DATABASE_URL` is a `${{Postgres.DATABASE_URL}}` reference so
+  it updates itself. Verify: `/api/meta` returns 200 with
+  `"backend":"postgresql"`. Not done from an agent session because if the two
+  services redeploy out of order the site is down until it settles.
+
+## Facts worth not rediscovering
+
+- Railway project `appealing-surprise` / env `production` / service
+  `scouting-app`. `railway deployment list --json` shows the deployed commit —
+  that is how to confirm what is actually live.
+- URL: https://scouting-app-production-2cd2.up.railway.app (`/` landing,
+  `/app` app, `/api/...` REST). `/api/meta` answers in ~0.5s.
+- **Auth runs before query validation.** Every unauthenticated probe returns
+  401, including malformed params — so you cannot probe whether a query param
+  exists without signing in. Don't waste time on curl probes.
+- `railway redeploy` re-runs the *existing* image and ignores new commits. Push,
+  or `railway up`.
+- `_seed_players_if_empty` only seeds an *empty* table, so roster changes never
+  propagate to an already-seeded prod. `refresh_prod_players.py` is the fix.
+- Importing `api_server` runs `init_db()`, which creates auth tables in whatever
+  DB you point at. It dirtied `scouting.db` once; that was reverted.
+- `prod_backup_20260807.json` (gitignored) holds password hashes and TOTP
+  secrets. Do not commit.
 
 ## Known pre-existing failures (not caused by this work)
 
-- `gen_test.py` won't collect: missing `openpyxl`
+- `gen_test.py` won't collect: missing `openpyxl`.
 - `test_app.js` / `smoke_test_v4.js` fail on "initial render shows first page of
   50 rows" because `RAW_PLAYERS` is empty in the build (roster comes from the
-  authed API). Identical failure reproduced against HEAD before any changes.
-  They need `jsdom`, which is not installed in the repo.
-- `test_api.py`: 36 passed throughout.
+  authed API). Reproduced against HEAD before any changes.
+- `test_api.py`: 38 passed (36 baseline + 2 new for the value band and the
+  raised page cap).
 
 ## Resume
 
