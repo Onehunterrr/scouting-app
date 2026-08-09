@@ -1,115 +1,157 @@
-# Handoff — market-value filter shipped; row-render rewrite needs browser verification
+# Handoff — payload trim + cache-freshness shipped locally; NOT pushed
 
-Checkpoint at ~153k tokens. Original report: "I can't see all 5000 players, and
-no players are valued between 60-100k."
+Checkpoint at ~152k tokens. Everything below is verified. One decision is left:
+whether to push (push auto-deploys).
 
-## What the report actually was (resolved)
+## Already live in prod (nothing to do)
 
-Neither was a data problem. 2,245 of the 5,000 players sit in the 60k-120k band.
-Two UI limits hid them:
+- `2ca8da6` market-value filter (`minValue`/`maxValue`, `MAX_PAGE_SIZE` 10000).
+- `47983c2` row-render rewrite. **Pushed and verified live this session.** The
+  four interaction checks the previous handoff asked for all passed against a
+  local run before the push:
+  row click -> modal; star toggles + re-renders and does *not* open the modal;
+  compare checkbox adds to the bar, skips the modal, and `COMPARE_MAX` refuses
+  the 5th; arrow-key nav keeps DOM index == `data-idx` == `currentRows[i]` and
+  Enter opens the right player. "All" unfiltered went **13.1s -> 3.0s**.
+  Live check: `/app` serves the `rowHtml` build, landing 200 in 0.24s.
 
-- **No market-value filter existed at all.** Filters were position/country/tier/
-  age/agent/search only. The default sort (Undervalued Score desc) ranks *low*
-  market value first by construction, so the cheap end filled every page anyone
-  actually scrolled.
-- **"All" was disabled in API mode**, capping the view at 100 rows/page, because
-  `MAX_PAGE_SIZE` was 2000 and a larger page was rejected outright.
+## UNCOMMITTED-TO-PROD WORK — committed locally, NOT pushed
 
-## Shipped and verified live (commit `2ca8da6`, deployed SUCCESS)
+Two backend changes, both verified. `git log origin/main..HEAD` will show them.
 
-- `minValue`/`maxValue` on `GET /api/players`; Min/Max inputs in the filter
-  panel (debounced 250ms, saved with views, cleared by Reset).
-- **Both sides band on `displayMarketValue`, not the raw column.** 1,250 players
-  have no value on record; banding on the raw 0 would drop every one of them out
-  of every band even though the table shows them an estimate. Do not "simplify"
-  this to `marketValue`.
-- `MAX_PAGE_SIZE` 2000 -> 10000, mirrored client-side as `API_ALL_PAGE_SIZE`.
-  Re-enables "All" in API mode and stops both CSV exports truncating at 2000.
-- Live check, signed in: min 60000 / max 120000 -> **2,245 players, 92 high
-  priority, 602 shown on estimate**, values spanning EUR 60,009-119,976, zero
-  outside the band. Exactly matches the locally computed CSV.
-- `players_60k_120k.csv` (2,245 rows) + `export_value_band.py` to regenerate any
-  band. Run it with `DATABASE_URL="sqlite:///./scouting.db"` — without that it
-  silently falls back to a throwaway sqlite under /tmp with a *different* roster
-  (it returned 5,002 players the first time and I nearly believed it).
+### 1. List payload trim (`api_server.py`, `build_html.py`)
 
-## UNCOMMITTED-TO-PROD WORK IN FLIGHT — read this first
+`explain` + `dealExplain` are nested prose/driver objects ~2.2 KB per player and
+**only the modal reads them**. `LIST_OMIT_FIELDS` + `_list_item()` strip them
+from `/api/players` responses only; `/api/players/{id}` still returns them whole.
 
-`renderRows` in `build_html.py` was rewritten to fix a real performance problem:
-**"All" on the unfiltered roster took 13.1s and froze the tab.** Measured split:
-2.8s for the API round-trip (18 MB payload), ~10s building DOM.
+`_list_item()` returns a **copy** — those dicts are the shared `_scored_cache`
+entries and must never be mutated by a request. Do not "optimise" that to a pop.
 
-The old code did `createElement` + `innerHTML` + 4 `addEventListener` +
-`appendChild` per row — 20,000 listeners and 5,000 live insertions. Replaced
-with `rowHtml(p, idx, newestBatch)` (pure player -> string), one
-`tbody.innerHTML = rows.map(...).join("")`, and event delegation on the tbody
-bound once via `bindRowEvents()` / `rowEventsBound`. Rows carry `data-idx` into
-`currentRows`; `rowPlayer(el)` resolves a row back to its player.
+Client side, `openModal` now rebuilds either blob on demand:
+`p.explain || (p.explain = buildExplain(p))` and the `buildDealExplain(p,
+acquirability(p))` equivalent, memoised onto the player object.
 
-Also fixed two malformed `<\span>` closing tags that browsers were silently
-recovering from.
+Measured on the full 5,000-row response: **18.98 MB -> 9.5 MB raw (-50%),
+2.79 MB -> 1.79 MB gzipped (-36%)**. Browser-verified: with the trimmed payload
+the modal still renders 2 ex-boxes, 11 chips, 4 driver lines, identical text.
 
-**State: committed locally, NOT pushed.** Build regenerates, JS parses under
-`node --check`, `test_api.py` is 38/38. But the row *interactions* are not
-browser-verified, and auto-deploy fires on push, so it must not go out untested.
+### 2. Roster cache freshness (`api_server.py`)
 
-### Next step — verify these four things, then push
+`_raw_players` / `_scored_cache` lived for the process lifetime, so a write by
+another process — `refresh_prod_players.py` uses its own engine — was invisible
+until the container restarted. That is why the roster refresh needed a redeploy.
 
-Open the app (local file or a deploy) and confirm:
-1. Clicking a row opens the player modal.
-2. The star toggles the shortlist and the row re-renders starred.
-3. The compare checkbox adds to the compare bar, does NOT open the modal, and
-   still enforces `COMPARE_MAX`.
-4. Keyboard nav (j/k or arrows) still focuses rows — `setKbFocus` indexes
-   `document.querySelectorAll("#table-body tr")` by DOM position, which must
-   stay in step with `currentRows`.
+Now: poll a cheap aggregate fingerprint at most once every
+`CACHE_CHECK_SECONDS` (env, default 60) and rebuild only when it moves.
+`_db_stamp()` = `(COUNT(id), MAX(last_updated), SUM(market_value))`.
+**SUM is in the stamp on purpose** — the e2e test changed one player's value
+while count and date stayed identical, which COUNT+MAX alone would have missed.
 
-Then re-measure "All" unfiltered. Expect well under 13s; if the DOM build is
-still slow, the remaining fix is row virtualization, not more micro-tuning.
+- `get_scored()` now resolves `get_players()` **first**, because the freshness
+  check can empty `_scored_cache`; reading the score cache first would serve a
+  scored list built from a superseded roster. Don't reorder those lines.
+- `invalidate_caches()` replaces the ad-hoc global resets.
+- New `POST /api/admin/cache/refresh` (admin-gated) for the immediate button
+  right after a bulk load, so nobody has to redeploy.
+- Thread-safe: FastAPI runs sync endpoints in a threadpool. `_cache_lock` +
+  double-checked None guard in `get_players()`.
+- `import time` / `import threading` moved to the top of the module. **Required**
+  — `warm_caches()` runs at import, before the old mid-file `import time`.
 
-## Still open (user asked for "all changes"; these are the rest)
+End-to-end proof against a real external sqlite writer, `CACHE_CHECK_SECONDS=3`:
+before the interval the response stayed cached; after it the log printed
+`[cache] players table changed (5000, '2026-07-27', 295928502) -> (…296372946);
+reloading` and the player came back rescored (UV 14.5 -> -41.2), not just re-read.
 
-1. **500/page option** — not added. Was offered as the cheap alternative to the
-   render rewrite; the rewrite may make it unnecessary. Page-size select is at
-   the `<option value="all">` block in `build_html.py`.
-2. **Landing page prose** still hardcodes "5,000 players" and "six continents".
-   Same drift risk that already bit the country count — fix the same way, read
-   `/api/meta` (`4a43364` is the pattern to copy).
-3. **Test deps never installed**: `gen_test.py` needs `openpyxl`;
+### Tests
+
+`test_api.py` **44 passed** (38 baseline + 6 new): list omits the blobs but keeps
+every field the client needs to rebuild them; single-player endpoint still has
+them; the trim doesn't mutate the score cache; an external write is picked up
+without a restart; the admin endpoint is gated and reloads; `invalidate_caches()`
+clears both. JS parses under `node --check`.
+
+### Next step
+
+Decide on the push. Everything is verified; the only reason it is sitting local
+is that push auto-deploys and that was the user's call last time.
+
+## Data accuracy — measured, nothing implemented yet
+
+Backtested `estimate_market_value` against the 3,750 players that *do* have a
+recorded value (`players_current.json` + `scoring.compute_scores`):
+
+- **Median absolute error 50.3%**; only 24.2% land within ±25%, 49.7% within
+  ±50%. Median signed bias **+15.4%** (over-estimates).
+- **The undervalued gap partly self-cancels for the 1,250 estimated-value
+  players.** `marketPct` ranks `displayMarketValue`, which for them *is* a
+  monotone function of the same quality composite driving `performancePct`.
+  Correlation between the two: **+0.015 for known-value players vs +0.731 for
+  estimated ones.** UV spread halves (sd 40.9 -> 20.5) and the High Priority
+  rate drops **16.4% -> 4.4%**. That 25% of the roster is structurally
+  under-surfaced — the mirror image of the bug `scoring.py:816` describes fixing.
+
+Proposed direction (not started, not agreed): treat estimated-value players as a
+separate confidence class — a value *band* rather than a point estimate, and
+keep them out of a gap they cannot meaningfully express — plus fill the 1,250
+missing values and 1,535 unknown-representation records.
+
+## Other backend findings (not implemented)
+
+1. **`_RATE_BUCKETS` grows unbounded** — `defaultdict` keyed by client IP with no
+   eviction; every unique IP leaks two deques for the process lifetime.
+2. **No ETag / Cache-Control** on `/api/players`; every reload re-downloads an
+   identical roster.
+3. Filter+sort is a full Python pass per request. Fine at 5k; ceiling ~50k.
+4. **Railway's edge already gzips** (`Content-Encoding: gzip` confirmed on prod).
+   Adding `GZipMiddleware` would buy nothing — the 18 MB in the old handoff was
+   the *decompressed* size. Don't re-propose it.
+
+## Still open (carried over)
+
+1. **Rotate the Postgres password — STILL OPEN.** Printed in plaintext by
+   `railway variables --service postgres` in an earlier session. Do it attended:
+   Postgres service -> Variables -> regenerate `POSTGRES_PASSWORD` -> let it
+   redeploy -> redeploy `scouting-app`. `DATABASE_URL` is a
+   `${{Postgres.DATABASE_URL}}` reference so it updates itself. Verify:
+   `/api/meta` returns 200 with `"backend":"postgresql"`. Not done from an agent
+   session — if the two services redeploy out of order the site is down until it
+   settles.
+2. **Commit `2ca8da6`'s subject line is a stray `@`** (PowerShell here-string in
+   a bash shell). Amending worked locally but the force-push was rejected: `main`
+   is protected. Fixing it means temporarily lifting branch protection — user's
+   call. Body of the message is intact.
+3. **500/page option** — never added; the render rewrite may make it unnecessary.
+4. **Landing page prose** still hardcodes "5,000 players" and "six continents".
+   Read `/api/meta` instead — `4a43364` is the pattern to copy.
+5. **Test deps never installed**: `gen_test.py` needs `openpyxl`;
    `test_app.js` / `smoke_test_v4.js` need `jsdom`. Both pre-existing.
-
-## Two things I could NOT do — they need you, not an agent
-
-- **Commit `2ca8da6`'s subject line is a stray `@`.** I used PowerShell
-  here-string syntax in a bash shell. Amending worked locally but the
-  force-push was rejected: `main` is a protected branch. Fixing it means
-  temporarily lifting branch protection — your call. Body of the message is
-  intact; only the summary line is wrong. Local was reset back in sync.
-- **Rotate the Postgres password — STILL OPEN** (carried over, pre-dates this
-  work). It was printed in plaintext by `railway variables --service postgres`
-  in an earlier session. Do it attended: Postgres service -> Variables ->
-  regenerate `POSTGRES_PASSWORD` -> let Postgres redeploy -> redeploy
-  `scouting-app`. `DATABASE_URL` is a `${{Postgres.DATABASE_URL}}` reference so
-  it updates itself. Verify: `/api/meta` returns 200 with
-  `"backend":"postgresql"`. Not done from an agent session because if the two
-  services redeploy out of order the site is down until it settles.
 
 ## Facts worth not rediscovering
 
+- **Run the app locally like this** (never against the real `scouting.db` —
+  importing `api_server` runs `init_db()`, which creates auth tables in whatever
+  DB you point at, and it dirtied `scouting.db` once):
+  `PERSIST_DIR=<scratch dir> PORT=8011 python api_server.py`
+  `default_db_url()` copies the shipped `scouting.db` into that mount, so the
+  real file is untouched. Register a throwaway user via `POST
+  /api/auth/register`, then set `localStorage["scoutingAuthV1"]` =
+  `{"token":…,"username":…}` to sign the browser in.
+- `alert()` at `build_html.py:2958` (compare limit) will freeze the Chrome
+  extension. Override `window.alert` before exercising the compare checkbox.
 - Railway project `appealing-surprise` / env `production` / service
-  `scouting-app`. `railway deployment list --json` shows the deployed commit —
-  that is how to confirm what is actually live.
+  `scouting-app`. `railway deployment list --json` shows the deployed commit.
 - URL: https://scouting-app-production-2cd2.up.railway.app (`/` landing,
-  `/app` app, `/api/...` REST). `/api/meta` answers in ~0.5s.
-- **Auth runs before query validation.** Every unauthenticated probe returns
-  401, including malformed params — so you cannot probe whether a query param
-  exists without signing in. Don't waste time on curl probes.
-- `railway redeploy` re-runs the *existing* image and ignores new commits. Push,
-  or `railway up`.
+  `/app` app, `/api/...` REST).
+- **Auth runs before query validation** — every unauthenticated probe returns
+  401, including malformed params. Don't waste time on curl probes.
+- `railway redeploy` re-runs the *existing* image and ignores new commits.
 - `_seed_players_if_empty` only seeds an *empty* table, so roster changes never
   propagate to an already-seeded prod. `refresh_prod_players.py` is the fix.
-- Importing `api_server` runs `init_db()`, which creates auth tables in whatever
-  DB you point at. It dirtied `scouting.db` once; that was reverted.
+- `export_value_band.py` needs `DATABASE_URL="sqlite:///./scouting.db"` — without
+  it, it silently falls back to a throwaway sqlite under /tmp with a *different*
+  roster.
 - `prod_backup_20260807.json` (gitignored) holds password hashes and TOTP
   secrets. Do not commit.
 
@@ -119,8 +161,6 @@ still slow, the remaining fix is row virtualization, not more micro-tuning.
 - `test_app.js` / `smoke_test_v4.js` fail on "initial render shows first page of
   50 rows" because `RAW_PLAYERS` is empty in the build (roster comes from the
   authed API). Reproduced against HEAD before any changes.
-- `test_api.py`: 38 passed (36 baseline + 2 new for the value band and the
-  raised page cap).
 
 ## Resume
 

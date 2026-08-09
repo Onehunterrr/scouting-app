@@ -27,6 +27,8 @@ import secrets
 import shutil
 import datetime
 import math
+import time
+import threading
 
 import jwt
 import pyotp
@@ -80,6 +82,23 @@ MFA_ISSUER = os.environ.get("MFA_ISSUER", "ScoutEdge")
 # Large enough for the client's "All" page size to return the whole roster in
 # one request; 2000 silently truncated a 5,000-player view to its first 2,000.
 MAX_PAGE_SIZE = 10000
+
+# Fields stripped from LIST responses. "explain" and "dealExplain" are nested
+# objects of prose + drivers worth ~2.2 KB per player -- 11.2 MB of a 19 MB
+# full-roster response, 59% of the payload -- and nothing but the player modal
+# ever reads them. The client rebuilds either one on demand from fields that do
+# ship (buildExplain / buildDealExplain in build_html.py), and the single-player
+# endpoint still returns them in full, so no caller loses information.
+LIST_OMIT_FIELDS = ("explain", "dealExplain")
+
+
+def _list_item(p):
+    """A scored player minus the modal-only explainability blobs.
+
+    Returns a copy: these dicts are the shared _scored_cache entries and must
+    never be mutated by a request.
+    """
+    return {k: v for k, v in p.items() if k not in LIST_OMIT_FIELDS}
 
 engine = None
 _raw_players = None          # list of camelCase dicts straight from the DB
@@ -170,27 +189,114 @@ def init_db(url=None):
     _seed_players_if_empty(engine)
     _raw_players = None
     _scored_cache = {}
+    _reset_cache_stamp()
     return engine
+
+
+# ---------------------------------------------------------------------------
+# Roster cache freshness.
+#
+# _raw_players / _scored_cache live for the lifetime of the process, so a write
+# made by ANOTHER process -- refresh_prod_players.py talks to the same database
+# with its own engine -- used to be invisible until the container restarted.
+# The roster silently served stale scores after every refresh.
+#
+# Rather than expire on a timer (which re-reads and re-scores 5,000 rows on a
+# schedule whether or not anything changed), poll a cheap aggregate fingerprint
+# at most once every CACHE_CHECK_SECONDS and rebuild only when it moves.
+# COUNT + MAX(last_updated) alone would miss an in-place edit that keeps the
+# row count and the date, so SUM(market_value) is in the stamp as well.
+# ---------------------------------------------------------------------------
+CACHE_CHECK_SECONDS = int(os.environ.get("CACHE_CHECK_SECONDS", "60"))
+
+_cache_lock = threading.Lock()
+_cache_stamp = None          # fingerprint the cached roster was built from
+_stamp_checked_at = 0.0      # monotonic clock of the last fingerprint poll
+
+
+def _reset_cache_stamp():
+    global _cache_stamp, _stamp_checked_at
+    _cache_stamp = None
+    _stamp_checked_at = 0.0
+
+
+def _db_stamp():
+    """Cheap fingerprint of the players table: (rows, newest update, value sum)."""
+    with engine.connect() as conn:
+        row = conn.execute(select(
+            func.count(players_t.c.id),
+            func.max(players_t.c.last_updated),
+            func.coalesce(func.sum(players_t.c.market_value), 0),
+        )).first()
+    return tuple(row)
+
+
+def invalidate_caches():
+    """Drop the roster + score caches so the next read rebuilds from the DB."""
+    global _raw_players, _scored_cache
+    with _cache_lock:
+        _raw_players = None
+        _scored_cache = {}
+        _reset_cache_stamp()
+
+
+def _maybe_expire_cache():
+    """Rebuild the cache if another writer has changed the players table.
+
+    Best-effort: a database hiccup here keeps serving the cached roster rather
+    than turning a read-only page view into a 500.
+    """
+    global _raw_players, _scored_cache, _cache_stamp, _stamp_checked_at
+    if _raw_players is None or CACHE_CHECK_SECONDS <= 0:
+        return
+    now = time.monotonic()
+    if now - _stamp_checked_at < CACHE_CHECK_SECONDS:
+        return
+    _stamp_checked_at = now
+    try:
+        stamp = _db_stamp()
+    except Exception as exc:
+        print(f"[cache] freshness check skipped: {exc}")
+        return
+    if _cache_stamp is not None and stamp != _cache_stamp:
+        print(f"[cache] players table changed {_cache_stamp} -> {stamp}; reloading")
+        _raw_players = None
+        _scored_cache = {}
 
 
 def get_players():
     """All players from the DB as camelCase dicts, cached in memory."""
-    global _raw_players
+    global _raw_players, _cache_stamp, _stamp_checked_at
+    _maybe_expire_cache()
     if _raw_players is None:
-        with engine.connect() as conn:
-            rows = conn.execute(select(players_t).order_by(players_t.c.id)).mappings().all()
-        _raw_players = [row_to_player(r) for r in rows]
+        with _cache_lock:
+            # Another thread may have rebuilt it while we waited for the lock.
+            if _raw_players is None:
+                with engine.connect() as conn:
+                    rows = conn.execute(
+                        select(players_t).order_by(players_t.c.id)).mappings().all()
+                players = [row_to_player(r) for r in rows]
+                try:
+                    _cache_stamp = _db_stamp()
+                except Exception:
+                    _cache_stamp = None
+                _stamp_checked_at = time.monotonic()
+                _raw_players = players
     return _raw_players
 
 
 def get_scored(weights=None):
     w = weights or scoring.DEFAULT_WEIGHTS
     key = (w["ga"], w["prog"], w["def"], w["age"])
+    # Resolve the roster FIRST: that runs the freshness check, which may empty
+    # _scored_cache. Reading the score cache before it would happily return a
+    # scored list built from a roster the database has already moved past.
+    players = get_players()
     if key not in _scored_cache:
         # keep the cache small: default weights + last custom set
         if len(_scored_cache) > 4:
             _scored_cache.clear()
-        _scored_cache[key] = scoring.compute_scores(get_players(), w)
+        _scored_cache[key] = scoring.compute_scores(players, w)
     return _scored_cache[key]
 
 
@@ -231,7 +337,6 @@ app.add_middleware(
 # the rest of the API gets a generous cap to absorb bursts without harming a
 # normal session.
 # ---------------------------------------------------------------------------
-import time
 from collections import defaultdict, deque
 
 _RATE_BUCKETS = defaultdict(lambda: defaultdict(deque))
@@ -491,7 +596,7 @@ def list_players(
 
     total = len(rows)
     start = (page - 1) * pageSize
-    items = rows[start:start + pageSize]
+    items = [_list_item(p) for p in rows[start:start + pageSize]]
 
     # summary over the WHOLE filtered set (the frontend stat chips)
     summary = {
@@ -1050,7 +1155,6 @@ def get_shared_view(token: str):
 @app.post("/api/admin/players")
 def admin_add_player(body: AdminPlayerBody, admin=Depends(require_admin)):
     from db_tables import JSON_TO_SQL
-    global _raw_players, _scored_cache
     today = datetime.date.today().isoformat()
     p = {
         "name": body.name.strip(), "country": body.country.strip(),
@@ -1070,9 +1174,21 @@ def admin_add_player(body: AdminPlayerBody, admin=Depends(require_admin)):
             pid = res.inserted_primary_key[0]
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not add player (duplicate name + country?): {e}")
-    _raw_players = None   # invalidate caches so the new player appears immediately
-    _scored_cache = {}
+    invalidate_caches()   # so the new player appears immediately
     return {"id": pid, "name": body.name.strip()}
+
+
+@app.post("/api/admin/cache/refresh")
+def admin_refresh_cache(admin=Depends(require_admin)):
+    """Force the roster + score caches to rebuild on the next read.
+
+    The freshness poll picks up an external write within CACHE_CHECK_SECONDS on
+    its own; this is the immediate button for right after a bulk load such as
+    refresh_prod_players.py, so nobody has to redeploy to see the new roster.
+    """
+    invalidate_caches()
+    players = get_players()
+    return {"invalidated": True, "players": len(players), "stamp": list(_cache_stamp or ())}
 
 
 # ---------------------------------------------------------------------------

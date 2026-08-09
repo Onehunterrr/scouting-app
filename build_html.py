@@ -3249,7 +3249,12 @@ function openModal(p) {
 
   // Explainability: the one-line "why" plus every caveat the model knows about,
   // so a flag is never an unexplained verdict.
-  const ex = p.explain;
+  //
+  // The list endpoint omits explain/dealExplain -- together they were 59% of a
+  // full-roster response and only this modal reads them. Rebuild them here from
+  // fields that do ship; offline mode has already computed them, and the cache
+  // on the player object means reopening the same modal costs nothing.
+  const ex = p.explain || (p.explain = buildExplain(p));
   const exNotesHtml = ex && ex.notes.length
     ? `<ul class="ex-notes">${ex.notes.map(n => `<li>${n}</li>`).join("")}</ul>`
     : "";
@@ -3267,7 +3272,9 @@ function openModal(p) {
     </div>` : "";
 
   // Deal Score box: undervaluation x acquirability, with the access drivers.
-  const dx = p.dealExplain;
+  // Same on-demand rebuild as explain above; acquirability() is a pure function
+  // of contract, representation, value and league, all of which ship in the list.
+  const dx = p.dealExplain || (p.dealExplain = buildDealExplain(p, acquirability(p)));
   const dealNotesHtml = dx && dx.notes.length
     ? `<ul class="ex-notes">${dx.notes.map(n => `<li>${n}</li>`).join("")}</ul>`
     : "";

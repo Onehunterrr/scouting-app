@@ -16,6 +16,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -561,3 +562,88 @@ def test_2fa_disable_requires_password_and_code():
     # login is single-factor again
     assert "token" in client.post("/api/auth/login",
                                   json={"username": "mfa_disable", "password": "secret123"}).json()
+
+
+# ---------------------------------------------------------------------------
+# List payload trim: explain/dealExplain are modal-only and 59% of the bytes
+# ---------------------------------------------------------------------------
+def test_list_omits_explain_blobs_but_keeps_their_inputs():
+    item = authed_get("/api/players", pageSize=1).json()["items"][0]
+    for field in api_server.LIST_OMIT_FIELDS:
+        assert field not in item, f"{field} should not ship in a list response"
+    # Everything buildExplain()/acquirability() need to rebuild them client-side
+    # must still be present, or the modal degrades instead of recomputing.
+    for field in ("performancePct", "marketPct", "gaPct", "progPct", "defPct",
+                  "youthPct", "shrinkWeight", "leagueStrength", "lowSample",
+                  "ageValueFactor", "marketValueEstimated", "displayMarketValue",
+                  "contractExpires", "hasAgent", "age", "minutes", "flag",
+                  "undervaluedScore", "acquirabilityScore", "dealScore"):
+        assert field in item, f"{field} is needed to rebuild the explain boxes"
+
+
+def test_single_player_endpoint_still_returns_explain():
+    pid = authed_get("/api/players", pageSize=1).json()["items"][0]["id"]
+    full = authed_get(f"/api/players/{pid}").json()
+    assert full["explain"]["summary"]
+    assert full["dealExplain"]["drivers"]
+
+
+def test_list_trim_does_not_mutate_the_score_cache():
+    authed_get("/api/players", pageSize=5)
+    cached = api_server.get_scored()[0]
+    assert "explain" in cached and "dealExplain" in cached
+
+
+# ---------------------------------------------------------------------------
+# Roster cache freshness: a write by another process must become visible
+# without a restart (refresh_prod_players.py talks to the same DB directly).
+# ---------------------------------------------------------------------------
+def _force_freshness_poll():
+    """Age the last poll past its interval so the next read re-checks the DB."""
+    api_server._stamp_checked_at = time.monotonic() - api_server.CACHE_CHECK_SECONDS - 1
+
+
+def _external_write(player_id, market_value):
+    """Write straight to the file with a separate connection -- deliberately
+    bypassing the app's engine, the way the refresh scripts do."""
+    con = sqlite3.connect(TEST_DB)
+    con.execute("UPDATE players SET market_value = ? WHERE id = ?", (market_value, player_id))
+    con.commit()
+    con.close()
+
+
+def test_external_write_is_picked_up_without_restart():
+    pid = authed_get("/api/players", pageSize=1).json()["items"][0]["id"]
+    before = authed_get("/api/players", ids=str(pid)).json()["items"][0]["marketValue"]
+    new_value = (before or 0) + 12345
+
+    _external_write(pid, new_value)
+    # Still cached: the poll interval has not elapsed, so nothing re-reads yet.
+    assert authed_get("/api/players", ids=str(pid)).json()["items"][0]["marketValue"] == before
+
+    _force_freshness_poll()
+    after = authed_get("/api/players", ids=str(pid)).json()["items"][0]
+    assert after["marketValue"] == new_value
+    assert after["displayMarketValue"] == new_value   # rescored, not just re-read
+
+    _external_write(pid, before)                      # leave the roster as we found it
+    _force_freshness_poll()
+    assert authed_get("/api/players", ids=str(pid)).json()["items"][0]["marketValue"] == before
+
+
+def test_admin_cache_refresh_is_gated_and_reloads():
+    assert client.post("/api/admin/cache/refresh",
+                       headers=_auth_headers("not_admin")).status_code == 403
+    r = client.post("/api/admin/cache/refresh", headers=_auth_headers("admin_user"))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["invalidated"] is True
+    assert body["players"] == len(api_server.get_players())
+
+
+def test_invalidate_caches_clears_both_caches():
+    api_server.get_scored()
+    assert api_server._raw_players is not None and api_server._scored_cache
+    api_server.invalidate_caches()
+    assert api_server._raw_players is None and api_server._scored_cache == {}
+    assert len(api_server.get_players()) > 0   # rebuilds on next read
