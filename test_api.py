@@ -11,6 +11,7 @@ The data endpoints (/api/players*) require a JWT; a shared authenticated
 client is created once at import and reused via the `authed_get` helper.
 """
 
+import json
 import math
 import os
 import shutil
@@ -647,3 +648,274 @@ def test_invalidate_caches_clears_both_caches():
     api_server.invalidate_caches()
     assert api_server._raw_players is None and api_server._scored_cache == {}
     assert len(api_server.get_players()) > 0   # rebuilds on next read
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit bucket eviction: _RATE_BUCKETS used to grow one entry per unique
+# client IP, forever.
+# ---------------------------------------------------------------------------
+def test_sweep_drops_ips_whose_history_has_aged_out():
+    api_server._RATE_BUCKETS.clear()
+    now = time.time()
+    widest = max(w for _, w in api_server.RATE_LIMITS.values())
+    api_server._RATE_BUCKETS["198.51.100.1"]["api"].append(now - widest - 5)
+    api_server._RATE_BUCKETS["198.51.100.2"]["auth"].append(now - widest - 5)
+    api_server._sweep_rate_buckets(now)
+    assert len(api_server._RATE_BUCKETS) == 0
+
+
+def test_sweep_keeps_active_ips_and_their_budget():
+    api_server._RATE_BUCKETS.clear()
+    now = time.time()
+    ip = "198.51.100.9"
+    limit, _ = api_server.RATE_LIMITS["auth"]
+    for _ in range(limit - 1):
+        api_server._RATE_BUCKETS[ip]["auth"].append(now)
+    api_server._sweep_rate_buckets(now)
+    assert ip in api_server._RATE_BUCKETS
+    # The surviving history still counts: one request left, then throttled.
+    assert api_server._rate_ok(ip, "auth") is True
+    assert api_server._rate_ok(ip, "auth") is False
+
+
+def test_tracked_ip_count_is_capped(monkeypatch):
+    """A flood of distinct, currently-active IPs stays bounded."""
+    monkeypatch.setattr(api_server, "RATE_MAX_TRACKED_IPS", 50)
+    api_server._RATE_BUCKETS.clear()
+    now = time.time()
+    for i in range(120):
+        # All recent, so the age-out pass cannot reclaim any of them.
+        api_server._RATE_BUCKETS[f"10.0.{i // 256}.{i % 256}"]["api"].append(now - i * 0.001)
+    api_server._sweep_rate_buckets(now)
+    assert len(api_server._RATE_BUCKETS) == 50
+    # Eviction is least-recently-active, so the newest arrivals are the keepers.
+    assert "10.0.0.0" in api_server._RATE_BUCKETS
+    assert "10.0.0.119" not in api_server._RATE_BUCKETS
+    api_server._RATE_BUCKETS.clear()
+
+
+def test_rate_ok_sweeps_on_its_own_schedule():
+    """_rate_ok must trigger the sweep; nothing else calls it in production."""
+    api_server._RATE_BUCKETS.clear()
+    now = time.time()
+    widest = max(w for _, w in api_server.RATE_LIMITS.values())
+    api_server._RATE_BUCKETS["203.0.113.200"]["api"].append(now - widest - 5)
+    api_server._rate_swept_at = 0.0          # force the interval to have elapsed
+    api_server._rate_ok("203.0.113.201", "api")
+    assert "203.0.113.200" not in api_server._RATE_BUCKETS
+    api_server._RATE_BUCKETS.clear()
+
+
+# ---------------------------------------------------------------------------
+# /api/players conditional GET: the roster is identical for every signed-in
+# user and only changes when the players table does.
+# ---------------------------------------------------------------------------
+def _get_with_etag(etag, **params):
+    headers = dict(AUTH)
+    headers["If-None-Match"] = etag
+    return client.get("/api/players", headers=headers, params=params or None)
+
+
+def test_players_response_carries_etag_and_cache_control():
+    r = authed_get("/api/players")
+    assert r.status_code == 200
+    assert r.headers["etag"].startswith('W/"')
+    assert r.headers["cache-control"] == api_server.PLAYERS_CACHE_CONTROL
+    assert "private" in r.headers["cache-control"]   # authed data, never shared
+
+
+def test_matching_etag_returns_304_with_no_body():
+    etag = authed_get("/api/players", pageSize=25).headers["etag"]
+    r = _get_with_etag(etag, pageSize=25)
+    assert r.status_code == 304
+    assert r.content == b""
+    assert r.headers["etag"] == etag           # revalidation re-affirms the tag
+
+
+def test_etag_is_stable_across_identical_requests():
+    a = authed_get("/api/players", position="MF", page=2).headers["etag"]
+    b = authed_get("/api/players", position="MF", page=2).headers["etag"]
+    assert a == b
+
+
+def test_etag_is_specific_to_the_query():
+    base = authed_get("/api/players", pageSize=25)
+    etag = base.headers["etag"]
+    # Every parameter that changes the body must change the tag, so a tag from
+    # one query can never satisfy another.
+    for differing in ({"pageSize": 26}, {"page": 2}, {"position": "MF"},
+                      {"sort": "age"}, {"dir": "asc"}, {"maxAge": 21},
+                      {"minValue": 500000}, {"q": "a"}, {"wGa": 50}):
+        params = {"pageSize": 25, **differing}
+        assert authed_get("/api/players", **params).headers["etag"] != etag
+        r = _get_with_etag(etag, **params)
+        assert r.status_code == 200, f"stale tag honoured for {differing}"
+
+
+def test_weak_comparison_and_if_none_match_lists():
+    etag = authed_get("/api/players", pageSize=25).headers["etag"]
+    strong = etag[2:]                                    # same tag, W/ stripped
+    assert _get_with_etag(strong, pageSize=25).status_code == 304
+    assert _get_with_etag(f'W/"other", {etag}', pageSize=25).status_code == 304
+    assert _get_with_etag("*", pageSize=25).status_code == 304
+    assert _get_with_etag('W/"nope"', pageSize=25).status_code == 200
+
+
+def test_etag_changes_when_an_external_write_lands():
+    pid = authed_get("/api/players", pageSize=1).json()["items"][0]["id"]
+    before_value = authed_get("/api/players", ids=str(pid)).json()["items"][0]["marketValue"]
+    etag = authed_get("/api/players", pageSize=25).headers["etag"]
+    assert _get_with_etag(etag, pageSize=25).status_code == 304
+
+    _external_write(pid, (before_value or 0) + 4242)
+    _force_freshness_poll()
+    # The roster moved, so the cached copy behind that tag is stale and the
+    # client must be sent the new body rather than a 304.
+    r = _get_with_etag(etag, pageSize=25)
+    assert r.status_code == 200
+    assert r.headers["etag"] != etag
+
+    _external_write(pid, before_value)                   # restore the roster
+    _force_freshness_poll()
+    authed_get("/api/players", pageSize=1)
+
+
+# ---------------------------------------------------------------------------
+# Pre-sorted roster: the per-request sort is now a per-(weights, sort, dir)
+# cache plus one filtering pass.
+# ---------------------------------------------------------------------------
+def test_presorted_order_matches_sorting_the_filtered_set():
+    """The whole point: filtering a stably-sorted list == sorting the filtered
+    one, ties included."""
+    scored = api_server.get_scored()
+    for sort, direction in (("undervaluedScore", "desc"), ("name", "asc"),
+                            ("age", "asc"), ("dealScore", "desc")):
+        want = [p["id"] for p in sorted(
+            (p for p in scored if p["position"] == "MF"),
+            key=api_server._sort_key(sort), reverse=direction != "asc")]
+        got = [p["id"] for p in authed_get(
+            "/api/players", position="MF", sort=sort, dir=direction,
+            pageSize=api_server.MAX_PAGE_SIZE).json()["items"]]
+        assert got == want, f"order diverged for {sort} {direction}"
+
+
+def test_sorted_cache_is_populated_and_reused():
+    api_server.invalidate_caches()
+    assert api_server._sorted_cache == {}
+    authed_get("/api/players", sort="age", dir="asc")
+    assert len(api_server._sorted_cache) == 1
+    authed_get("/api/players", sort="age", dir="asc", position="MF", page=3)
+    assert len(api_server._sorted_cache) == 1, "filters must not key the cache"
+    authed_get("/api/players", sort="age", dir="desc")
+    assert len(api_server._sorted_cache) == 2, "direction must key the cache"
+
+
+def test_sorted_cache_is_bounded():
+    api_server.invalidate_caches()
+    for sort in ("age", "name", "club", "country", "position", "tier",
+                 "undervaluedScore", "dealScore", "marketValue",
+                 "displayMarketValue", "performancePct", "marketPct",
+                 "goals", "assists"):
+        authed_get("/api/players", sort=sort, pageSize=1)
+    assert len(api_server._sorted_cache) <= 13
+
+
+def test_stale_roster_never_survives_in_the_sorted_cache():
+    """A freshness reload must drop the cached orders too, or the API would
+    serve an order built from a roster the DB has moved past."""
+    pid = authed_get("/api/players", sort="marketValue", dir="desc",
+                     pageSize=1).json()["items"][0]["id"]
+    before = authed_get("/api/players", ids=str(pid)).json()["items"][0]["marketValue"]
+
+    _external_write(pid, 1)                    # was top by value; now bottom
+    _force_freshness_poll()
+    top = authed_get("/api/players", sort="marketValue", dir="desc",
+                     pageSize=1).json()["items"][0]
+    assert top["id"] != pid, "sorted cache served a superseded roster"
+
+    _external_write(pid, before)
+    _force_freshness_poll()
+    assert authed_get("/api/players", sort="marketValue", dir="desc",
+                      pageSize=1).json()["items"][0]["id"] == pid
+
+
+def test_unknown_sort_key_rejected_even_when_the_filter_matches_nothing():
+    r = authed_get("/api/players", sort="notAField", country="Nowhere")
+    assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Response encoding: FastAPI's jsonable_encoder walks every value of anything
+# that is not already a Response -- 516 ms of a 962 ms full-roster request,
+# converting nothing, because the payload is already JSON primitives.
+# ---------------------------------------------------------------------------
+def _count_encoder_calls(monkeypatch):
+    import fastapi.routing
+    calls = []
+    real = fastapi.routing.jsonable_encoder
+    monkeypatch.setattr(fastapi.routing, "jsonable_encoder",
+                        lambda *a, **k: calls.append(1) or real(*a, **k))
+    return calls
+
+
+def test_list_response_skips_fastapis_encoder(monkeypatch):
+    calls = _count_encoder_calls(monkeypatch)
+    r = authed_get("/api/players", pageSize=200)
+    assert r.status_code == 200 and len(r.json()["items"]) == 200
+    assert calls == [], "list response was re-encoded by FastAPI"
+
+
+def test_players_all_skips_fastapis_encoder(monkeypatch):
+    calls = _count_encoder_calls(monkeypatch)
+    r = authed_get("/api/players/all")
+    # Not TOTAL: an earlier test adds a player, so compare against live state.
+    assert r.status_code == 200
+    assert len(r.json()["players"]) == len(api_server.get_players()) > 0
+    assert calls == [], "/api/players/all was re-encoded by FastAPI"
+
+
+def test_encoder_probe_would_notice_a_regression(monkeypatch):
+    """Guards the two tests above: the patched name is the one FastAPI calls,
+    so `calls == []` means something, rather than passing vacuously."""
+    calls = _count_encoder_calls(monkeypatch)
+    assert authed_get("/api/players/ids").status_code == 200
+    assert calls, "probe is broken -- a dict-returning endpoint must hit it"
+
+
+def _check_json_primitives(value, path):
+    """What makes the encoder bypass safe. If scoring or row_to_player ever
+    emits a datetime, Decimal or NaN this fails here rather than as malformed
+    JSON in a browser."""
+    if isinstance(value, dict):
+        for k, sub in value.items():
+            assert isinstance(k, str), f"non-string key at {path}: {k!r}"
+            _check_json_primitives(sub, f"{path}.{k}")
+    elif isinstance(value, (list, tuple)):
+        for i, sub in enumerate(value):
+            _check_json_primitives(sub, f"{path}[{i}]")
+    else:
+        assert isinstance(value, (str, int, float, bool, type(None))), \
+            f"{path} is {type(value).__name__}"
+        # json.dumps writes bare NaN/Infinity, which JSON.parse rejects.
+        assert not isinstance(value, float) or math.isfinite(value), f"{path} is {value}"
+
+
+def test_list_payload_is_json_primitives_only():
+    for p in api_server.get_scored():
+        _check_json_primitives(api_server._list_item(p), "item")
+
+
+def test_players_all_payload_is_json_primitives_only():
+    for p in api_server.get_players():
+        _check_json_primitives(p, "player")
+
+
+def _reject_constant(name):
+    raise AssertionError(f"payload contains bare {name}, which is not valid JSON")
+
+
+def test_encoder_bypassed_responses_are_valid_strict_json():
+    for path, params in (("/api/players", {"pageSize": 500}),
+                         ("/api/players/all", {})):
+        body = authed_get(path, **params).content
+        json.loads(body.decode("utf-8"), parse_constant=_reject_constant)

@@ -23,6 +23,7 @@ import os
 import io
 import json
 import base64
+import hashlib
 import secrets
 import shutil
 import datetime
@@ -35,7 +36,7 @@ import pyotp
 import qrcode
 import qrcode.image.svg
 from passlib.hash import bcrypt
-from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -103,6 +104,11 @@ def _list_item(p):
 engine = None
 _raw_players = None          # list of camelCase dicts straight from the DB
 _scored_cache = {}           # weights tuple -> scored list
+_sorted_cache = {}           # (weights tuple, sort key, dir) -> scored list, ordered
+
+# Bumped every time a new roster becomes live. It is the roster half of the
+# /api/players ETag: clients holding an older version must re-download.
+_roster_version = 0
 
 
 def _seed_sqlite_if_needed(url):
@@ -177,7 +183,7 @@ def _ensure_user_columns(eng):
 def init_db(url=None):
     """(Re-)initialise the engine + player cache. Tests call this with their
     own URL; normal startup uses env DATABASE_URL or the sqlite default."""
-    global engine, _raw_players, _scored_cache
+    global engine, _raw_players, _scored_cache, _sorted_cache
     url = url or os.environ.get("DATABASE_URL") or default_db_url()
     if url.startswith("sqlite:///") and "/tmp/" in url:
         print("[init_db] WARNING: database lives under /tmp and will be erased "
@@ -189,6 +195,7 @@ def init_db(url=None):
     _seed_players_if_empty(engine)
     _raw_players = None
     _scored_cache = {}
+    _sorted_cache = {}
     _reset_cache_stamp()
     return engine
 
@@ -233,10 +240,11 @@ def _db_stamp():
 
 def invalidate_caches():
     """Drop the roster + score caches so the next read rebuilds from the DB."""
-    global _raw_players, _scored_cache
+    global _raw_players, _scored_cache, _sorted_cache
     with _cache_lock:
         _raw_players = None
         _scored_cache = {}
+        _sorted_cache = {}
         _reset_cache_stamp()
 
 
@@ -246,7 +254,7 @@ def _maybe_expire_cache():
     Best-effort: a database hiccup here keeps serving the cached roster rather
     than turning a read-only page view into a 500.
     """
-    global _raw_players, _scored_cache, _cache_stamp, _stamp_checked_at
+    global _raw_players, _scored_cache, _sorted_cache, _cache_stamp, _stamp_checked_at
     if _raw_players is None or CACHE_CHECK_SECONDS <= 0:
         return
     now = time.monotonic()
@@ -262,11 +270,12 @@ def _maybe_expire_cache():
         print(f"[cache] players table changed {_cache_stamp} -> {stamp}; reloading")
         _raw_players = None
         _scored_cache = {}
+        _sorted_cache = {}
 
 
 def get_players():
     """All players from the DB as camelCase dicts, cached in memory."""
-    global _raw_players, _cache_stamp, _stamp_checked_at
+    global _raw_players, _cache_stamp, _stamp_checked_at, _roster_version
     _maybe_expire_cache()
     if _raw_players is None:
         with _cache_lock:
@@ -282,6 +291,10 @@ def get_players():
                     _cache_stamp = None
                 _stamp_checked_at = time.monotonic()
                 _raw_players = players
+                # A new roster is live: every cached ETag now refers to a stale
+                # body. This is the one place a rebuild becomes visible, so it
+                # is the one place the version needs to move.
+                _roster_version += 1
     return _raw_players
 
 
@@ -298,6 +311,98 @@ def get_scored(weights=None):
             _scored_cache.clear()
         _scored_cache[key] = scoring.compute_scores(players, w)
     return _scored_cache[key]
+
+
+def _sort_key(sort):
+    """Ordering key matching the frontend: case-insensitive for strings, and
+    missing values sorting below every real one."""
+    def key(p):
+        v = p.get(sort)
+        if isinstance(v, str):
+            return v.lower()
+        if v is None:
+            return -math.inf
+        if isinstance(v, bool):
+            return int(v)
+        return v
+    return key
+
+
+def get_sorted(weights=None, sort="undervaluedScore", direction="desc"):
+    """The scored roster in display order, cached per (weights, sort, dir).
+
+    Ordering 5,000 players calls a Python-level key function 5,000 times, and
+    that ran again on every request. The order depends only on the roster and
+    the sort -- never on the filters -- so it is cached here and each request
+    does a single filtering pass instead. Python's sort is stable, so filtering
+    an already-sorted list yields exactly the order that filtering and then
+    sorting would have produced.
+
+    Holds references to the shared scored dicts, not copies, so the cache costs
+    one pointer per player per order.
+    """
+    w = weights or scoring.DEFAULT_WEIGHTS
+    # Resolve the scored list FIRST, for the same reason get_scored() resolves
+    # get_players() first: the freshness check inside it can empty _sorted_cache,
+    # and reading that cache earlier would return an order built from a roster
+    # the database has already moved past.
+    scored = get_scored(w)
+    if scored and sort not in scored[0]:
+        raise HTTPException(status_code=400, detail=f"Unknown sort key: {sort}")
+    key = ((w["ga"], w["prog"], w["def"], w["age"]), sort, direction)
+    if key not in _sorted_cache:
+        # Ordinary browsing touches a handful of orders; a client cycling sort
+        # keys should not be able to pin one list per key in memory.
+        if len(_sorted_cache) > 12:
+            _sorted_cache.clear()
+        _sorted_cache[key] = sorted(scored, key=_sort_key(sort),
+                                    reverse=direction != "asc")
+    return _sorted_cache[key]
+
+
+# ---------------------------------------------------------------------------
+# /api/players conditional GET.
+#
+# The roster is identical for every signed-in user and changes only when the
+# players table does, but each reload re-downloaded ~9.5 MB of it. The ETag is
+# (boot token, roster version, query parameters) -- everything the response body
+# depends on -- so a repeat request can be answered with an empty 304.
+#
+# The boot token covers code: scoring.py or LIST_OMIT_FIELDS can change the body
+# without the roster moving, and a deploy restarts the process. It also means
+# separate replicas issue different ETags, so this stops being useful (it never
+# becomes wrong) if the service is ever scaled past one instance.
+# ---------------------------------------------------------------------------
+_BOOT_TOKEN = hashlib.sha256(
+    f"{os.getpid()}:{time.time()}".encode()).hexdigest()[:12]
+
+# "private" because the roster is behind auth and must not land in a shared
+# proxy; "max-age=0, must-revalidate" so the browser keeps its copy but always
+# asks. The saving is the 304, not a period of unchecked staleness.
+PLAYERS_CACHE_CONTROL = "private, max-age=0, must-revalidate"
+
+
+def _players_etag(parts):
+    digest = hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:24]
+    # Weak: Railway's edge gzips, so the bytes a client stored are not
+    # guaranteed octet-identical to the bytes this process produced.
+    return f'W/"{_BOOT_TOKEN}-{_roster_version}-{digest}"'
+
+
+def _etag_matches(header, etag):
+    """RFC 9110 weak comparison against an If-None-Match list."""
+    if not header:
+        return False
+    if header.strip() == "*":
+        return True
+    bare = etag[2:] if etag.startswith("W/") else etag
+    for candidate in header.split(","):
+        candidate = candidate.strip()
+        if candidate.startswith("W/"):
+            candidate = candidate[2:]
+        if candidate == bare:
+            return True
+    return False
 
 
 init_db()
@@ -343,6 +448,14 @@ _RATE_BUCKETS = defaultdict(lambda: defaultdict(deque))
 RATE_LIMITS = {"auth": (20, 60), "api": (300, 60)}  # (max_requests, window_seconds)
 RATE_LIMIT_DISABLED = os.environ.get("RATE_LIMIT_DISABLED") == "1"  # test/dev escape hatch
 
+# _RATE_BUCKETS is keyed by client IP and nothing used to remove a key, so every
+# IP that ever connected held two deques until the process died -- an unbounded
+# leak, and one an attacker could drive by varying X-Forwarded-For. Entries are
+# swept on a timer, and the tracked-IP count is capped as a hard backstop.
+RATE_SWEEP_SECONDS = 300
+RATE_MAX_TRACKED_IPS = 20000
+_rate_swept_at = 0.0
+
 
 def _client_ip(request):
     xff = request.headers.get("x-forwarded-for")
@@ -351,9 +464,44 @@ def _client_ip(request):
     return request.client.host if request.client else "?"
 
 
+def _sweep_rate_buckets(now):
+    """Drop per-IP state that can no longer affect a decision.
+
+    Once an IP's timestamps have all aged out of the widest window it is
+    indistinguishable from an IP that has never been seen, so forgetting it
+    changes no outcome. Only the over-cap eviction below is lossy.
+    """
+    global _rate_swept_at
+    _rate_swept_at = now
+    widest = max(window for _, window in RATE_LIMITS.values())
+    for ip in list(_RATE_BUCKETS):
+        buckets = _RATE_BUCKETS[ip]
+        for dq in buckets.values():
+            while dq and now - dq[0] > widest:
+                dq.popleft()
+        if not any(buckets.values()):
+            del _RATE_BUCKETS[ip]
+    excess = len(_RATE_BUCKETS) - RATE_MAX_TRACKED_IPS
+    if excess > 0:
+        # Still over after pruning: this many distinct IPs are genuinely active
+        # inside one window, which in practice means spoofed forwarding headers.
+        # Evict the least recently active. Forgetting an IP hands it a fresh
+        # budget, so the cap trades a little limiter accuracy under a flood for
+        # a bounded footprint -- the same exposure a restart already creates.
+        def last_seen(item):
+            return max((dq[-1] for dq in item[1].values() if dq), default=0.0)
+        for ip, _ in sorted(_RATE_BUCKETS.items(), key=last_seen)[:excess]:
+            del _RATE_BUCKETS[ip]
+        print(f"[rate] evicted {excess} least-recently-active IPs "
+              f"(cap {RATE_MAX_TRACKED_IPS})")
+
+
 def _rate_ok(ip, bucket):
     limit, window = RATE_LIMITS[bucket]
     now = time.time()
+    if (now - _rate_swept_at > RATE_SWEEP_SECONDS
+            or len(_RATE_BUCKETS) > RATE_MAX_TRACKED_IPS):
+        _sweep_rate_buckets(now)
     dq = _RATE_BUCKETS[ip][bucket]
     while dq and now - dq[0] > window:
         dq.popleft()
@@ -535,9 +683,12 @@ def list_players(
     wProg: int | None = Query(default=None, ge=0, le=100),
     wDef: int | None = Query(default=None, ge=0, le=100),
     wAge: int | None = Query(default=None, ge=0, le=100),
+    request: Request = None,
     user=Depends(current_user),
 ):
-    scored = get_scored(_parse_weights(wGa, wProg, wDef, wAge))
+    # Ordered up front: this validates the sort key, and it runs the roster
+    # freshness check that _roster_version (and so the ETag) depends on.
+    ordered = get_sorted(_parse_weights(wGa, wProg, wDef, wAge), sort, dir)
 
     agent_vals = set(v.strip() for v in hasAgent.split(",")) if hasAgent else None
     id_set = None
@@ -548,8 +699,18 @@ def list_players(
             raise HTTPException(status_code=400, detail="ids must be a comma-separated list of integers")
     ql = q.strip().lower() if q else None
 
+    etag = _players_etag([str(v) for v in (
+        position, tier, country, maxAge, hasAgent, q, ids, minValue, maxValue,
+        sort, dir, page, pageSize, wGa, wProg, wDef, wAge)])
+    headers = {"ETag": etag, "Cache-Control": PLAYERS_CACHE_CONTROL}
+    if request is not None and _etag_matches(
+            request.headers.get("if-none-match"), etag):
+        # Answered before the filtering pass and the 9.5 MB serialisation --
+        # skipping that work is the point, not just the bytes on the wire.
+        return Response(status_code=304, headers=headers)
+
     rows = []
-    for p in scored:
+    for p in ordered:
         if position and p["position"] != position:
             continue
         if tier is not None and p["tier"] != tier:
@@ -577,23 +738,8 @@ def list_players(
             continue
         rows.append(p)
 
-    # sort exactly like the frontend: case-insensitive for strings
-    if rows and sort not in rows[0]:
-        raise HTTPException(status_code=400, detail=f"Unknown sort key: {sort}")
-    reverse = dir != "asc"
-
-    def sort_key(p):
-        v = p.get(sort)
-        if isinstance(v, str):
-            return v.lower()
-        if v is None:
-            return -math.inf
-        if isinstance(v, bool):
-            return int(v)
-        return v
-
-    rows.sort(key=sort_key, reverse=reverse)
-
+    # No sort here: `ordered` was already in display order and the filter pass
+    # above preserved it.
     total = len(rows)
     start = (page - 1) * pageSize
     items = [_list_item(p) for p in rows[start:start + pageSize]]
@@ -605,8 +751,18 @@ def list_players(
         "avgAge": round(sum(p["age"] for p in rows) / total, 1) if total else 0,
     }
 
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize,
-            "summary": summary}
+    # Returned as a JSONResponse rather than a plain dict on purpose. FastAPI
+    # runs jsonable_encoder over anything that is not already a Response --
+    # a recursive walk of all 5,000 players x 64 fields that measured 516 ms of
+    # a 962 ms full-roster request, more than three times the cost of the JSON
+    # serialisation itself. Every value here is already a str/int/float/bool
+    # produced by row_to_player and scoring.compute_scores, so that walk had
+    # nothing to convert. JSONResponse serialises with the same settings
+    # FastAPI would have used, so the bytes are identical.
+    return JSONResponse(
+        content={"items": items, "total": total, "page": page,
+                 "pageSize": pageSize, "summary": summary},
+        headers=headers)
 
 
 @app.get("/api/players/ids")
@@ -620,8 +776,13 @@ def list_player_ids(user=Depends(current_user)):
 def list_all_players(user=Depends(current_user)):
     """Full player dataset (authed) so the client loads it AFTER sign-in rather
     than having it embedded in the served HTML. Closes the view-source leak:
-    no player data is present in the page until a user is authenticated."""
-    return {"players": get_players()}
+    no player data is present in the page until a user is authenticated.
+
+    JSONResponse for the same reason as list_players: this runs on every
+    sign-in, and letting FastAPI walk the whole roster through jsonable_encoder
+    cost 215 ms against 26 ms to serialise it. row_to_player already returns
+    nothing but str/int/float."""
+    return JSONResponse(content={"players": get_players()})
 
 
 @app.get("/api/players/{player_id}")

@@ -1,7 +1,8 @@
-# Handoff — payload trim + cache-freshness shipped locally; NOT pushed
+# Handoff — two local commits waiting on one deploy
 
-Checkpoint at ~152k tokens. Everything below is verified. One decision is left:
-whether to push (push auto-deploys).
+Everything below is verified. **Nothing is pushed.** The user's call this
+session was to hold `f94bb48` and bundle it with the backend work, so the next
+push deploys both commits at once.
 
 ## Already live in prod (nothing to do)
 
@@ -74,8 +75,103 @@ clears both. JS parses under `node --check`.
 
 ### Next step
 
-Decide on the push. Everything is verified; the only reason it is sitting local
-is that push auto-deploys and that was the user's call last time.
+Push. Decision already taken: hold `f94bb48`, bundle it with the backend work
+below, deploy both together.
+
+## SECOND UNPUSHED COMMIT — the three backend items
+
+`_RATE_BUCKETS` eviction, conditional GET, and the request-path cost. All in
+`api_server.py`; `test_api.py` is **65 passed** (44 baseline + 21 new).
+
+### 1. Rate-bucket leak — fixed
+
+`_RATE_BUCKETS` is keyed by client IP and nothing ever removed a key, so every
+IP that ever connected held two deques for the process lifetime — and an
+attacker could drive it by varying `X-Forwarded-For`.
+
+`_sweep_rate_buckets()` runs from `_rate_ok()` every `RATE_SWEEP_SECONDS` (300)
+or whenever the dict exceeds `RATE_MAX_TRACKED_IPS` (20000). It prunes
+timestamps past the widest window and drops IPs left with nothing — that state
+is indistinguishable from never-seen, so it changes no decision. Only the
+over-cap eviction is lossy: it drops least-recently-active IPs, handing them a
+fresh budget. That trade is deliberate and is the same exposure a restart
+already creates.
+
+### 2. ETag / Cache-Control on `/api/players` — added
+
+`W/"<boot token>-<roster version>-<sha of every query param>"`, plus
+`Cache-Control: private, max-age=0, must-revalidate`.
+
+- `_roster_version` bumps in the ONE place a rebuilt roster becomes live
+  (inside `get_players()`, under the lock). Don't bump it anywhere else.
+- The boot token covers *code*: `scoring.py` or `LIST_OMIT_FIELDS` can change
+  the body without the roster moving, and a deploy restarts the process. It
+  also means **this stops helping if the service is ever scaled past one
+  replica** — different boot tokens, so revalidation always misses. It never
+  becomes *wrong*, just useless.
+- The check runs before the filter pass, so a 304 skips the work, not just the
+  bytes. Verified over real HTTP: `304`, 0 bytes.
+- Staleness is bounded by `CACHE_CHECK_SECONDS`, exactly like the roster cache
+  it sits on top of — a 304 can only be as stale as the cache already was.
+- `invalidate_caches()` forces a version bump even when the data is unchanged,
+  so an admin refresh makes every client re-download. Conservative on purpose.
+
+**Not verified: whether Chrome revalidates on its own.** `apiFetch` uses default
+fetch options (no `no-store`, no cache-buster), and `must-revalidate` is one of
+the directives that permits storing an `Authorization`-bearing response, so it
+should. But the Chrome extension dropped mid-check and no headless browser is
+installed, so this is reasoned, not observed. **Confirm in devtools after the
+deploy** — look for `304` on the second `/api/players` load. If Chrome declines
+to store it, the server side is still correct and the fix is client-side
+(send `If-None-Match` explicitly from `apiFetch`).
+
+### 3. The "sort ceiling" — the handoff's diagnosis was wrong
+
+Measured on the 5,000-row roster, `GET /api/players?pageSize=10000` was 962 ms:
+
+| | |
+|---|---|
+| `jsonable_encoder` | **516 ms** |
+| `json.dumps` | 164 ms |
+| `_list_item` copies | 33 ms |
+| summary passes | 1.8 ms |
+| **sort** | **1.4 ms** |
+| filter pass | 0.8 ms |
+
+The sort was **0.15%** of the request. The real ceiling was FastAPI running
+`jsonable_encoder` over every value of anything that isn't already a `Response`
+— and it had nothing to convert, because the payload is already
+`str/int/float/bool` end to end.
+
+Both fixes are in:
+
+- **`get_sorted()`** caches display order per `(weights, sort, dir)`, so the
+  request does one filtering pass and no sort. Stable sort means filtering an
+  ordered list == sorting the filtered one, ties included —
+  `test_presorted_order_matches_sorting_the_filtered_set` pins that. It must be
+  invalidated everywhere `_scored_cache` is, and `get_sorted()` resolves
+  `get_scored()` **first** for the same reason `get_scored()` resolves
+  `get_players()` first. Small win, but it is the correct structure.
+- **`/api/players` and `/api/players/all` return `JSONResponse`**, which makes
+  FastAPI skip the encoder. This is the actual win.
+
+**962 ms -> 170 ms (5.7x)** for the full roster; `/api/players/all`, which runs
+on every sign-in, **250 ms -> 33 ms**.
+
+Output is **byte-identical**: 14 representative queries plus `/api/players/all`
+compared by SHA-256, length and content-type before and after. `JSONResponse`
+uses the same `json.dumps` settings FastAPI would have.
+
+What makes the bypass safe is that the payload is JSON primitives with no
+non-finite floats — audited across all 5,000 players and pinned by
+`test_list_payload_is_json_primitives_only` /
+`test_players_all_payload_is_json_primitives_only`, so if scoring ever emits a
+`datetime`, `Decimal` or `NaN` it fails in the suite rather than as malformed
+JSON in a browser. `test_encoder_probe_would_notice_a_regression` guards the
+guard — it asserts a still-dict-returning endpoint *does* hit the encoder, so
+the `calls == []` assertions can't pass vacuously.
+
+**Don't "tidy" either endpoint back to returning a plain dict.**
 
 ## Data accuracy — measured, nothing implemented yet
 
@@ -97,20 +193,28 @@ separate confidence class — a value *band* rather than a point estimate, and
 keep them out of a gap they cannot meaningfully express — plus fill the 1,250
 missing values and 1,535 unknown-representation records.
 
-## Other backend findings (not implemented)
+## Other backend findings
 
-1. **`_RATE_BUCKETS` grows unbounded** — `defaultdict` keyed by client IP with no
-   eviction; every unique IP leaks two deques for the process lifetime.
-2. **No ETag / Cache-Control** on `/api/players`; every reload re-downloads an
-   identical roster.
-3. Filter+sort is a full Python pass per request. Fine at 5k; ceiling ~50k.
+1. ~~`_RATE_BUCKETS` grows unbounded~~ — **fixed above.**
+2. ~~No ETag / Cache-Control on `/api/players`~~ — **fixed above.**
+3. ~~Filter+sort is a full Python pass per request~~ — **fixed above, though the
+   diagnosis was wrong: the cost was `jsonable_encoder`, not the sort.**
 4. **Railway's edge already gzips** (`Content-Encoding: gzip` confirmed on prod).
    Adding `GZipMiddleware` would buy nothing — the 18 MB in the old handoff was
    the *decompressed* size. Don't re-propose it.
+5. **Every other dict-returning endpoint still pays `jsonable_encoder`.** Only
+   the two roster endpoints were converted, because those are the ones where it
+   was worth the loss of FastAPI's conversion safety net. `/api/players/ids` is
+   the next largest if it ever matters. Measure before converting: on small
+   payloads the encoder is noise.
+6. `orjson` is **not** installed. `json.dumps` is now the largest single cost of
+   a full-roster response (164 ms). An `ORJSONResponse` would likely cut that
+   several-fold, but it is a new dependency — not taken unilaterally.
 
 ## Still open (carried over)
 
-1. **Rotate the Postgres password — STILL OPEN.** Printed in plaintext by
+1. **Rotate the Postgres password — STILL OPEN. Needs the user, not an agent.**
+   Printed in plaintext by
    `railway variables --service postgres` in an earlier session. Do it attended:
    Postgres service -> Variables -> regenerate `POSTGRES_PASSWORD` -> let it
    redeploy -> redeploy `scouting-app`. `DATABASE_URL` is a
