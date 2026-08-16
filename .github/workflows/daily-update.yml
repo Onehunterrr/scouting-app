@@ -1,0 +1,59 @@
+name: Daily Roster Update
+
+# Refreshes the live roster every 24h: drifts each player's stats by a day of
+# match activity and adds a couple of new players. Runs against the deployed
+# database directly -- nothing in the repo is rewritten, so this never triggers
+# a redeploy.
+#
+# Setup (one-off): add the deployment's connection string as the repository
+# secret DATABASE_URL. For Railway that is the Postgres service's
+# DATABASE_PUBLIC_URL -- the internal *.railway.internal host is only reachable
+# from inside Railway's network, so a GitHub runner cannot use it.
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily, off the back of the platform's quiet hours
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Write to the database (unchecked = dry run)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two refreshes overlapping would double-count a day of match activity.
+  group: daily-roster-update
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh the live roster
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check the secret is present
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not set -- see the comment at the top of this workflow."
+            exit 1
+          fi
+      - name: Refresh the roster
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.apply }}" != "true" ]; then
+            python daily_update.py
+          else
+            python daily_update.py --apply
+          fi

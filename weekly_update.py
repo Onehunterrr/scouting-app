@@ -83,9 +83,15 @@ def load_current():
             return json.load(f)
 
 
-def refresh_player(p, today, rng):
-    """Simulate roughly a week of match activity for one existing player."""
-    played_this_week = rng.random() < 0.75
+def refresh_player(p, today, rng, play_chance=0.75, agent_chance=0.04):
+    """Simulate roughly a week of match activity for one existing player.
+
+    play_chance / agent_chance are the per-run rates. They default to the
+    weekly cadence this script has always used; daily_update.py passes down
+    scaled values so running every 24h doesn't hand every player seven
+    matches a week.
+    """
+    played_this_week = rng.random() < play_chance
     if played_this_week:
         minutes_this_week = rng.randint(20, 95)
         old_minutes = max(p["minutes"], 1)
@@ -119,9 +125,18 @@ def refresh_player(p, today, rng):
         p["progCarries"] += add_pc
         p["tklInt"] += max(0, round(new_def))
 
-        # small chance market value ticks up after a good showing
+        # small chance market value ticks up after a good showing. Capped at
+        # the top of the band: without the cap a player who keeps drawing the
+        # 15% ticks compounds straight past the ceiling the scoring engine is
+        # calibrated to, and a player with nothing on record has to enter at a
+        # band value -- the old EUR 8k-20k entry is below the floor now.
         if rng.random() < 0.15:
-            p["marketValue"] = int(p["marketValue"] * rng.uniform(1.03, 1.12)) if p["marketValue"] else rng.randint(8000, 20000)
+            if p["marketValue"]:
+                p["marketValue"] = min(player_gen.VALUE_TAIL_HI,
+                                       int(p["marketValue"] * rng.uniform(1.03, 1.12)))
+            else:
+                p["marketValue"] = rng.randint(player_gen.VALUE_BAND_LO,
+                                               player_gen.VALUE_BAND_HI)
 
         # goalkeeper-specific stats evolve too, off the same noise model
         if p["position"] == "GK":
@@ -138,7 +153,7 @@ def refresh_player(p, today, rng):
                 p["cleanSheets"] = p.get("cleanSheets", 0) + 1
 
     # small chance an unrepresented player gets picked up by an agent this week
-    if p["hasAgent"] in ("No", "Unknown") and rng.random() < 0.04:
+    if p["hasAgent"] in ("No", "Unknown") and rng.random() < agent_chance:
         p["hasAgent"] = "Yes"
         p["contactRoute"] = "Go through the player's agent - ask the club to confirm representation first"
     elif p["age"] < 18:

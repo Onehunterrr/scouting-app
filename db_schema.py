@@ -177,10 +177,10 @@ composite AS (
 ),
 valued AS (
   SELECT *,
-    MAX(10000.0, MIN(500000.0,
-      79000.0 * exp(3.15 * (quality_composite - 0.488432))
-              * league_strength * age_factor
-              * (0.85 + 0.15 * MIN(1.0, MAX(0.0, minutes / 2200.0)))
+    MAX(80000.0, MIN(200000.0,
+      121452.0 * exp(0.4385 * (quality_composite - 0.561641))
+               * pow(league_strength * age_factor
+                     * (0.85 + 0.15 * MIN(1.0, MAX(0.0, minutes / 2200.0))), 0.6701)
     )) AS raw_value
   FROM composite
 ),

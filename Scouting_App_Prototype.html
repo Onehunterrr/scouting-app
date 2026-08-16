@@ -1450,11 +1450,16 @@ const AGE_PEAK_LO = 24.0, AGE_PEAK_HI = 27.0;
 const AGE_YOUNG_REF = 16.0, AGE_YOUNG_FLOOR = 0.70, AGE_YOUNG_EXP = 0.85;
 const AGE_DECLINE_RATE = 0.055, AGE_DECLINE_EXP = 1.35;
 
-/* Value scale, calibrated against the known market values in the dataset
-   (n=3,769: min 8k, median 79k, max 150k) -- not against global transfer
-   headlines, since these are lower-division players. */
-const VALUE_FLOOR = 10000.0, VALUE_CEIL = 500000.0;
-const VALUE_MEDIAN = 79000.0, VALUE_SPREAD = 3.15, VALUE_BASE_REF = 0.488432;
+/* Value scale, calibrated against the recorded market values in the dataset
+   (n=3,750: min 80k, median 102k, max 200k) -- not against global transfer
+   headlines, since these are lower-division players. The roster sits on a
+   narrow 80k-120k band (players below that aren't worth a commission), which
+   is only 1.5x wide; league x age x minutes alone already spread 1.69x, so
+   VALUE_FACTOR_EXP damps them to leave the quality term room to move the
+   number. Fitted on the live roster -- see scoring.py for the constraints. */
+const VALUE_FLOOR = 80000.0, VALUE_CEIL = 200000.0;
+const VALUE_MEDIAN = 121452.0, VALUE_SPREAD = 0.4385, VALUE_BASE_REF = 0.561641;
+const VALUE_FACTOR_EXP = 0.6701;
 const MINUTES_REF = 2200.0, MINUTES_FACTOR_FLOOR = 0.85;
 
 /* Position-relative reference points for the quality composite. The old
@@ -1470,7 +1475,7 @@ const CONTRACT_URGENCY = {0: 1.00, 1: 0.75, 2: 0.35, 3: 0.15};
 const CONTRACT_URGENCY_NULL = 0.35;
 const RESIGN_AGE_LO = 20.0, RESIGN_AGE_SPAN = 3.0, RESIGN_FLOOR = 0.75;
 const REP_NO = 1.00, REP_UNKNOWN = 0.70, REP_YES = 0.35;
-const FEE_REF = 10000.0, FEE_EXP = 0.35;
+const FEE_REF = 80000.0, FEE_EXP = 0.35;
 const LS_MAX = 1.000, LS_SPAN = 0.267, LEAGUE_MULT_FLOOR = 0.85;
 const MINOR_GATE = 0.40;
 const W_CONTRACT = 0.45, W_REP = 0.30, W_FEE = 0.25;
@@ -2122,9 +2127,11 @@ function roundValue(val) {
 
 /* Log-scale: a reference-quality player at peak age in a tier-2 league with a
    full season of minutes lands on VALUE_MEDIAN, and every factor moves that
-   multiplicatively. The old engine was a linear ramp hard-clamped to 9k-160k
-   with a random jitter term that added +-10% of pure noise to a number users
-   read as an estimate; both are gone. */
+   multiplicatively -- the economic factors damped by VALUE_FACTOR_EXP so they
+   fit the narrow band without crowding out the quality term. The old engine
+   was a linear ramp hard-clamped to 9k-160k with a random jitter term that
+   added +-10% of pure noise to a number users read as an estimate; both are
+   gone. */
 function estimateMarketValue(p, rates, refs) {
   const minutes = p.minutes || 1;
   const base = qualityComposite(p, rates, refs);
@@ -2133,7 +2140,7 @@ function estimateMarketValue(p, rates, refs) {
   const minutesF = MINUTES_FACTOR_FLOOR + (1.0 - MINUTES_FACTOR_FLOOR) * clamp01(minutes / MINUTES_REF);
   let val = VALUE_MEDIAN
           * Math.exp(VALUE_SPREAD * (base - VALUE_BASE_REF))
-          * ls * ageF * minutesF;
+          * Math.pow(ls * ageF * minutesF, VALUE_FACTOR_EXP);
   val = Math.max(VALUE_FLOOR, Math.min(VALUE_CEIL, val));
   return roundValue(val);
 }
@@ -2291,7 +2298,7 @@ function acquirability(p) {
   const r = RESIGN_FLOOR + (1.0 - RESIGN_FLOOR) * clamp01((p.age - RESIGN_AGE_LO) / RESIGN_AGE_SPAN);
   const contractComp = c * r;
   const rep = p.hasAgent === "No" ? REP_NO : p.hasAgent === "Yes" ? REP_YES : REP_UNKNOWN;
-  const vEff = Math.max(p.displayMarketValue || 79000.0, FEE_REF);
+  const vEff = Math.max(p.displayMarketValue || 102000.0, FEE_REF);
   const fee = Math.pow(FEE_REF / vEff, FEE_EXP);
   const invLS = clamp01((LS_MAX - p.leagueStrength) / LS_SPAN);
   const lmult = LEAGUE_MULT_FLOOR + (1.0 - LEAGUE_MULT_FLOOR) * invLS;

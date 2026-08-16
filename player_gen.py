@@ -22,6 +22,62 @@ AGENT_WEIGHTS_DEFAULT = [0.45, 0.25, 0.30]        # No, Yes, Unknown
 AGENT_WEIGHTS_WELL_SCOUTED = [0.25, 0.45, 0.30]
 WELL_SCOUTED = {"Austria", "Switzerland"}
 
+# ---------------------------------------------------------------------------
+# Simulated market values.
+#
+# The roster only earns its keep if the players on it are worth a commission,
+# so the band is deliberately narrow and starts at EUR 80k -- the old
+# uniform EUR 8k-150k draw filled most of the table with players nobody would
+# work a deal on.
+#
+# It is NOT a flat band. undervaluedScore is (performance percentile - value
+# percentile), so if every player carried the same value the value percentile
+# would collapse to noise and the whole signal would reduce to "who has the
+# best stats". VALUE_TAIL_SHARE of the roster therefore runs above the band,
+# thinning towards VALUE_TAIL_HI (the draw is squared), which keeps genuine
+# standouts separated from the pack.
+#
+# Values stay independent of the player's stats on purpose: the gap between
+# what a player produces and what they cost is the product, and correlating
+# the two would flatten every Undervalued Score to zero.
+#
+# scoring.py's estimator (VALUE_MEDIAN / VALUE_SPREAD / VALUE_BASE_REF, plus
+# the JS copy in build_html.py and the SQL copy in db_schema.py) is calibrated
+# against this distribution. Changing the numbers here means recalibrating
+# there, or displayMarketValue starts mixing two different scales.
+# ---------------------------------------------------------------------------
+VALUE_BAND_LO = 80_000
+VALUE_BAND_HI = 120_000
+VALUE_TAIL_HI = 200_000
+VALUE_TAIL_SHARE = 0.10
+VALUE_TAIL_EXP = 2.0    # squares the draw, so density thins towards VALUE_TAIL_HI
+NO_VALUE_SHARE = 0.25   # nothing on record -> scoring.py's estimator fills it in
+
+
+def draw_market_value(rng=random):
+    """One simulated market value in euros, or 0 for 'nothing on record'."""
+    if rng.random() < NO_VALUE_SHARE:
+        return 0
+    if rng.random() < VALUE_TAIL_SHARE:
+        t = rng.random() ** VALUE_TAIL_EXP
+        return int(round(VALUE_BAND_HI + (VALUE_TAIL_HI - VALUE_BAND_HI) * t))
+    return rng.randint(VALUE_BAND_LO, VALUE_BAND_HI)
+
+
+def band_quantile(q):
+    """The value at quantile `q` (0..1) of draw_market_value's non-zero output.
+
+    The inverse CDF of the draw above. Used to remap an existing roster onto
+    the band without disturbing who is expensive relative to whom.
+    """
+    if q < 1.0 - VALUE_TAIL_SHARE:
+        t = q / (1.0 - VALUE_TAIL_SHARE)
+        return int(round(VALUE_BAND_LO + (VALUE_BAND_HI - VALUE_BAND_LO) * t))
+    t = (q - (1.0 - VALUE_TAIL_SHARE)) / VALUE_TAIL_SHARE
+    return int(round(VALUE_BAND_HI
+                     + (VALUE_TAIL_HI - VALUE_BAND_HI) * t ** VALUE_TAIL_EXP))
+
+
 FEDERATION = {
     "Iceland":"KSI (Icelandic Football Association) player registry",
     "Montenegro":"FSCG (Football Association of Montenegro) player registry",
@@ -303,7 +359,7 @@ def generate_players(n, used_names, date_str, rng=None, country=None):
         city = r.choice(cities)
         club = f"{city} {r.choice(CLUB_SUFFIX)}"
         league = r.choice(LEAGUE_TEMPLATES).format(c=_c)
-        market_value = 0 if r.random() < 0.25 else r.randint(8000, 150000)
+        market_value = draw_market_value(r)
         has_agent = r.choices(["No","Yes","Unknown"], weights=AGENT_WEIGHTS_WELL_SCOUTED
                               if _c in WELL_SCOUTED else AGENT_WEIGHTS_DEFAULT)[0]
         contract_expires = r.randint(2026, 2029)
@@ -363,7 +419,7 @@ if __name__ == "__main__":
             city = random.choice(cities)
             club = f"{city} {random.choice(CLUB_SUFFIX)}"
             league = random.choice(LEAGUE_TEMPLATES).format(c=country)
-            market_value = 0 if random.random() < 0.25 else random.randint(8000, 150000)
+            market_value = draw_market_value(random)
             has_agent = random.choices(["No","Yes","Unknown"], weights=[0.45,0.25,0.30])[0]
             contract_expires = random.randint(2026, 2029)
             club_email = f"info@{slug(club)}.{tld}"

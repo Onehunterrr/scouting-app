@@ -463,16 +463,20 @@ def test_acquirability_spec_examples():
                 "leagueStrength": math.exp(-0.155 * (tier - 2)),
                 "lowSample": False, "marketValueEstimated": False, "minutes": 2000}
 
-    a = scoring.acquirability(mk(20, "No", 2026, 25000, 55, 3))
-    assert a["score"] == pytest.approx(75.5, abs=0.2)
-    assert scoring.deal_score(55, a["score"]) == pytest.approx(62.4, abs=0.2)
+    # Values recomputed when the roster moved onto the EUR 80-120k band: FEE_REF
+    # is now the 80k band floor, so every fee term sits near 1.0 and
+    # acquirability rises across the board. Kept in step with the worked
+    # examples in acquirability_spec.md -- change both together.
+    a = scoring.acquirability(mk(20, "No", 2026, 85000, 55, 3))
+    assert a["score"] == pytest.approx(81.3, abs=0.2)
+    assert scoring.deal_score(55, a["score"]) == pytest.approx(64.3, abs=0.2)
 
     b = scoring.acquirability(mk(24, "Yes", 2029, 140000, 10, 2))
-    assert b["score"] == pytest.approx(21.0, abs=0.2)
-    assert scoring.deal_score(10, b["score"]) == pytest.approx(13.4, abs=0.2)
+    assert b["score"] == pytest.approx(25.2, abs=0.2)
+    assert scoring.deal_score(10, b["score"]) == pytest.approx(14.5, abs=0.2)
 
-    c = scoring.acquirability(mk(19, "Unknown", 2027, 80000, -20, 2))
-    assert c["score"] == pytest.approx(49.1, abs=0.2)
+    c = scoring.acquirability(mk(19, "Unknown", 2027, 102000, -20, 2))
+    assert c["score"] == pytest.approx(57.7, abs=0.2)
     assert scoring.deal_score(-20, c["score"]) == 0.0  # overvalued is never a deal
 
 

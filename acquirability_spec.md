@@ -20,8 +20,8 @@ RESIGN_FLOOR           = 0.75     # U20 contract urgency haircut
 REP_NO                 = 1.00     # unrepresented: the product wedge
 REP_UNKNOWN            = 0.70     # near base-rate expectation minus wasted-call risk
 REP_YES                = 0.35     # agent = gatekeeper + fee inflation; penalised, not vetoed
-FEE_REF                = 10000.0  # dataset floor: €10k fee -> feasibility 1.0
-FEE_EXP                = 0.35     # each price doubling cuts feasibility ~21.5%; €500k -> 0.254
+FEE_REF                = 80000.0  # dataset floor: €80k fee -> feasibility 1.0
+FEE_EXP                = 0.35     # each price doubling cuts feasibility ~21.5%; €200k -> 0.726
 LS_MAX                 = 1.000    # tier-2 league strength
 LS_SPAN                = 0.267    # LS_MAX - 0.733 (tier 4)
 LEAGUE_MULT_FLOOR      = 0.85     # tier-2 seller leverage costs at most 15%
@@ -48,8 +48,8 @@ contractComp = C * R
 
 Rep = {No: 1.00, Yes: 0.35, Unknown: 0.70}[hasAgent]
 
-vEff = max(coalesce(displayMarketValue, 79000), 10000)
-Fee  = pow(10000 / vEff, 0.35)          # log-linear; €10k->1.0, €79k->0.485, €500k->0.254
+vEff = max(coalesce(displayMarketValue, 102000), 80000)
+Fee  = pow(80000 / vEff, 0.35)          # log-linear; €80k->1.0, €102k->0.918, €200k->0.726
 
 invLS = min(1, max(0, (1.000 - leagueStrength) / 0.267))   # tier2->0, 3->0.538, 4->1
 Lmult = 0.85 + 0.15 * invLS                                # 0.85 / 0.931 / 1.00
@@ -72,16 +72,22 @@ hotProspect = dealScore >= 55 AND NOT lowSample
 
 ## Worked examples (verify implementation against these)
 
-(a) age 20, no agent, expires 2026, €25k, uv +55, tier 3:
-    contractComp=0.75, Rep=1.00, Fee=0.7256, Lmult=0.9307 -> **Acq=75.5, Deal=62.4, HOT**
+(a) age 20, no agent, expires 2026, €85k, uv +55, tier 3:
+    contractComp=0.75, Rep=1.00, Fee=0.9790, Lmult=0.9307 -> **Acq=81.3, Deal=64.3, HOT**
 (b) age 24, agent Yes, expires 2029, €140k, uv +10, tier 2:
-    contractComp=0.15, Rep=0.35, Fee=0.3971, Lmult=0.85 -> **Acq=21.0, Deal=13.4**
-(c) age 19, agent Unknown, expires 2027, €80k, uv −20, tier 2:
-    contractComp=0.5625, Rep=0.70, Fee=0.4830, Lmult=0.85 -> **Acq=49.1, Deal=0** (uv<0)
+    contractComp=0.15, Rep=0.35, Fee=0.8221, Lmult=0.85 -> **Acq=25.2, Deal=14.5**
+(c) age 19, agent Unknown, expires 2027, €102k, uv −20, tier 2:
+    contractComp=0.5625, Rep=0.70, Fee=0.9185, Lmult=0.85 -> **Acq=57.7, Deal=0** (uv<0)
+
+(Recomputed after the roster moved onto the €80–120k band: FEE_REF is now the
+€80k band floor, so every fee term sits much closer to 1.0 and acquirability
+rises across the board — the fee is no longer the discriminator it was when
+values ran from €8k to €150k. Contract urgency and representation now carry
+almost all of the signal.)
 
 ## Edge cases
 - contractExpires null -> C=0.35 + note "Contract year unknown — assumed two years remaining"
-- value null/0 -> vEff falls back to 79000 (median), never the flattering 10k floor
+- value null/0 -> vEff falls back to 102000 (median), never the flattering 80k floor
 - lowSample: scores still compute; hotProspect blocked; reuse estimated-value note
 - uv <= 0 -> dealScore exactly 0
 

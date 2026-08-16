@@ -124,19 +124,38 @@ def age_band(age):
 
 
 # ---------------------------------------------------------------------------
-# Value scale. Calibrated against the known market values actually present in
-# the dataset (n=3,769: min EUR 8k, median EUR 79k, max EUR 150k) rather than
-# against global transfer-market headlines -- these are lower-division players
-# and inflating the estimates to millions would make displayMarketValue mix two
-# incompatible scales. The old engine was a linear ramp hard-clamped to
-# EUR 9k-160k; this is a log-scale (right-skewed) curve with a EUR 10k floor and
-# a EUR 500k ceiling, so genuine standouts are no longer truncated.
+# Value scale. Calibrated against the recorded market values actually present
+# in the dataset (n=3,750: min EUR 80k, median EUR 102k, max EUR 200k) rather
+# than against global transfer-market headlines -- these are lower-division
+# players and inflating the estimates to millions would make
+# displayMarketValue mix two incompatible scales.
+#
+# The roster was moved onto a deliberately narrow EUR 80k-120k band (see
+# player_gen.VALUE_BAND_LO) because players below that aren't worth a
+# commission. That band is only 1.5x wide, and league strength x age factor x
+# minutes factor alone already spread 1.69x across the middle 90% of the
+# roster -- so on the old formula the economics swamped the whole band and the
+# quality composite had nowhere left to move the number. VALUE_FACTOR_EXP
+# compresses those three factors (they matter less in absolute euros when the
+# entire market is narrow) to buy the quality term room to work.
+#
+# Fitted jointly on the live roster against two constraints:
+#   - p02 -> p90 of the estimate spans 80k -> 120k, so the bulk lands in the
+#     band and the top decile runs above it -- the same 90/10 shape the
+#     recorded values have.
+#   - a top-decile-quality player estimates 1.25x a bottom-decile one, so the
+#     number visibly tracks how good the player is. Without this constraint
+#     the fit drives the quality term to zero: the composite is mildly
+#     anti-correlated (-0.15) with the economic multiplier, because thin
+#     minutes inflate per-90 rates while cutting the minutes factor.
+# Re-run the fit if the band in player_gen.py moves.
 # ---------------------------------------------------------------------------
-VALUE_FLOOR = 10000.0
-VALUE_CEIL = 500000.0
-VALUE_MEDIAN = 79000.0   # euros for a reference-quality player at peak age
-VALUE_SPREAD = 3.15      # log-space sensitivity to the quality composite
-VALUE_BASE_REF = 0.488432  # cohort-median composite; calibrated so median(est) = 79k
+VALUE_FLOOR = 80000.0
+VALUE_CEIL = 200000.0
+VALUE_MEDIAN = 121452.0    # scale anchor; the fitted median estimate is ~104k
+VALUE_SPREAD = 0.4385      # log-space sensitivity to the quality composite
+VALUE_FACTOR_EXP = 0.6701  # compresses league x age x minutes into the narrow band
+VALUE_BASE_REF = 0.561641  # cohort-median composite
 MINUTES_REF = 2200.0
 MINUTES_FACTOR_FLOOR = 0.85
 
@@ -153,7 +172,7 @@ RESIGN_AGE_LO = 20.0          # at/below: clubs fight to re-sign expiring prospe
 RESIGN_AGE_SPAN = 3.0         # ramp 20 -> 23
 RESIGN_FLOOR = 0.75           # U20 contract-urgency haircut
 REP_NO, REP_UNKNOWN, REP_YES = 1.00, 0.70, 0.35
-FEE_REF = 10000.0             # dataset floor: a EUR 10k fee is petty cash -> feasibility 1.0
+FEE_REF = 80000.0             # dataset floor: an EUR 80k fee is the cheapest deal going -> feasibility 1.0
 FEE_EXP = 0.35                # each price doubling cuts feasibility ~21.5%
 LS_MAX, LS_SPAN = 1.000, 0.267
 LEAGUE_MULT_FLOOR = 0.85      # tier-2 seller leverage costs at most 15%
@@ -365,8 +384,10 @@ def estimate_market_value(p, rates=None, refs=None):
 
     Log-scale: a reference-quality player at peak age in a tier-2 league with a
     full season of minutes lands on VALUE_MEDIAN, and every factor moves that
-    multiplicatively. No random jitter -- the old jitter term added +-10% of
-    pure noise to a number users read as an estimate.
+    multiplicatively -- the economic factors damped by VALUE_FACTOR_EXP so they
+    fit the narrow band without crowding out the quality term. No random jitter
+    -- the old jitter term added +-10% of pure noise to a number users read as
+    an estimate.
     """
     minutes = p["minutes"] or 1
     base = quality_composite(p, rates, refs)
@@ -375,7 +396,7 @@ def estimate_market_value(p, rates=None, refs=None):
     minutes_f = MINUTES_FACTOR_FLOOR + (1.0 - MINUTES_FACTOR_FLOOR) * _clamp01(minutes / MINUTES_REF)
     val = (VALUE_MEDIAN
            * math.exp(VALUE_SPREAD * (base - VALUE_BASE_REF))
-           * ls * age_f * minutes_f)
+           * math.pow(ls * age_f * minutes_f, VALUE_FACTOR_EXP))
     val = max(VALUE_FLOOR, min(VALUE_CEIL, val))
     return _round_value(val)
 
@@ -507,7 +528,7 @@ def acquirability(p):
     r = RESIGN_FLOOR + (1.0 - RESIGN_FLOOR) * _clamp01((p["age"] - RESIGN_AGE_LO) / RESIGN_AGE_SPAN)
     contract_comp = c * r
     rep = REP_NO if p["hasAgent"] == "No" else REP_YES if p["hasAgent"] == "Yes" else REP_UNKNOWN
-    v_eff = max(p.get("displayMarketValue") or 79000.0, FEE_REF)
+    v_eff = max(p.get("displayMarketValue") or 102000.0, FEE_REF)
     fee = math.pow(FEE_REF / v_eff, FEE_EXP)
     inv_ls = _clamp01((LS_MAX - p["leagueStrength"]) / LS_SPAN)
     lmult = LEAGUE_MULT_FLOOR + (1.0 - LEAGUE_MULT_FLOOR) * inv_ls

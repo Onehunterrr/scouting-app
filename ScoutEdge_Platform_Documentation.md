@@ -104,7 +104,7 @@ Each player is reduced to three position-appropriate per-90 rates: for outfield 
 
 ### 4.2 Market-Value Estimation
 
-Where a market value is unknown, the platform estimates one. A quality composite is computed from the shrunken rates against position-relative reference points (1.8 times the position mean). The estimate is log-scale—right-skewed like real transfer markets—centred so the cohort median equals €79,000, floored at €10,000 and capped at €500,000, and adjusted multiplicatively by league strength, an age-value curve, and a minutes factor. The age curve rises through the late teens, plateaus across the 24–27 peak, and declines thereafter, replacing the naïve assumption that younger is always more valuable. The estimator is deterministic: identical inputs always produce identical values.
+Where a market value is unknown, the platform estimates one. A quality composite is computed from the shrunken rates against position-relative reference points (1.8 times the position mean). The estimate is log-scale—right-skewed like real transfer markets—calibrated so the cohort median lands near €104,000, floored at €80,000 and capped at €200,000, and adjusted multiplicatively by league strength, an age-value curve, and a minutes factor. Those three economic factors are damped by an exponent (0.6701) before they are applied: the roster deliberately occupies a narrow €80,000–€120,000 band, and left undamped they consumed the whole band and left the quality composite unable to move the estimate at all. The age curve rises through the late teens, plateaus across the 24–27 peak, and declines thereafter, replacing the naïve assumption that younger is always more valuable. The estimator is deterministic: identical inputs always produce identical values.
 
 ### 4.3 Undervalued Score
 
@@ -134,7 +134,7 @@ Every scored player carries two structured explanation objects: one for the Unde
 
 - Deterministic pipeline end to end: dataset generation, scoring, value estimation, and value-history charts are all seeded or pure functions—no random noise is presented as signal.
 
-- Calibration checks: the estimated-value distribution is verified against the known-value distribution (median €79,000, right-skewed, nothing truncated at the bounds).
+- Calibration checks: the estimated-value distribution is verified against the recorded-value distribution (median €102,000, right-skewed, 90% inside the €80,000–€120,000 band and 10% above it—matching the recorded shape).
 
 - Data Health monitoring compares each data refresh against a stored baseline and reports anomalies.
 
