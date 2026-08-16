@@ -51,6 +51,11 @@ with eng.begin() as c:
     print("production roster: %d players, %d countries"
           % (len(old_id_to_key), len({v[1] for v in old_id_to_key.values()})))
 
+    # Users are never touched here; read the count up front so the post-write
+    # check can assert it did not move, instead of pinning a literal that goes
+    # stale the moment someone signs up.
+    n_users_before = c.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
+
     shortlists = [(r[0], r[1]) for r in
                   c.execute(text("SELECT user_id, player_id FROM shortlists"))]
     ledger = [(r[0], r[1]) for r in
@@ -102,7 +107,10 @@ with eng.begin() as c:
     n_users = c.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
     print("\nafter: %d players, %d countries, %d shortlists, %d users"
           % (n_players, n_countries, n_sl, n_users))
-    if n_players != len(new_rows) or n_users != 12:
-        raise SystemExit("ABORT: post-write counts look wrong -- rolling back")
+    if n_players != len(new_rows) or n_users != n_users_before:
+        raise SystemExit(
+            "ABORT: post-write counts look wrong -- rolling back "
+            "(players %d, expected %d; users %d, expected %d)"
+            % (n_players, len(new_rows), n_users, n_users_before))
 
 print("committed." if APPLY else "")
