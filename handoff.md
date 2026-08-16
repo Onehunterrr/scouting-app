@@ -1,271 +1,145 @@
-# Handoff — two local commits waiting on one deploy
+# Handoff — value band rescale + daily auto-update
 
-Everything below is verified. **Nothing is pushed.** The user's call this
-session was to hold `f94bb48` and bundle it with the backend work, so the next
-push deploys both commits at once.
+Both pieces of work are **complete, verified, and committed locally**. Nothing
+is pushed. There is one manual step left that only the repo owner can do (a
+GitHub secret), described at the bottom.
 
-## Already live in prod (nothing to do)
+## What changed
 
-- `2ca8da6` market-value filter (`minValue`/`maxValue`, `MAX_PAGE_SIZE` 10000).
-- `47983c2` row-render rewrite. **Pushed and verified live this session.** The
-  four interaction checks the previous handoff asked for all passed against a
-  local run before the push:
-  row click -> modal; star toggles + re-renders and does *not* open the modal;
-  compare checkbox adds to the bar, skips the modal, and `COMPARE_MAX` refuses
-  the 5th; arrow-key nav keeps DOM index == `data-idx` == `currentRows[i]` and
-  Enter opens the right player. "All" unfiltered went **13.1s -> 3.0s**.
-  Live check: `/app` serves the `rowHtml` build, landing 200 in 0.24s.
+### 1. Roster moved onto an EUR 80k-120k band
 
-## UNCOMMITTED-TO-PROD WORK — committed locally, NOT pushed
+The old roster drew market values uniformly from EUR 8k-150k; half of it sat
+below EUR 80k, which isn't worth a commission. The band is now:
+**90% in EUR 80k-120k, 10% running above it, thinning to EUR 200k.**
 
-Two backend changes, both verified. `git log origin/main..HEAD` will show them.
+The tail is deliberate, not decoration. `undervaluedScore` is
+`performancePct - marketPct`, so a perfectly flat band would collapse the value
+percentile to noise and reduce the whole product to "who has the best stats".
 
-### 1. List payload trim (`api_server.py`, `build_html.py`)
+- `player_gen.py` — new band constants (`VALUE_BAND_LO/HI`, `VALUE_TAIL_HI`,
+  `VALUE_TAIL_SHARE`, `NO_VALUE_SHARE`) plus `draw_market_value(rng)` and
+  `band_quantile(q)`. Both generation sites now call `draw_market_value`.
+- `rescale_market_values.py` (new) — remapped the existing 5,000 players
+  **rank-preservingly** onto the band. It does not regenerate the roster: names
+  had to stay stable because `refresh_prod_players.py` keys prod shortlists and
+  ledger rows on `(name, country)`. Already applied to `players_current.json`
+  and `scouting.db`. It is idempotent-safe to re-read but only meant to run once.
+- Players with nothing on record (1,250 of 5,000) stay at 0 — the estimator
+  fills those in, and it was recalibrated to the same band.
 
-`explain` + `dealExplain` are nested prose/driver objects ~2.2 KB per player and
-**only the modal reads them**. `LIST_OMIT_FIELDS` + `_list_item()` strip them
-from `/api/players` responses only; `/api/players/{id}` still returns them whole.
+Result: recorded values min 80,006 / median 102,198 / max 199,783.
 
-`_list_item()` returns a **copy** — those dicts are the shared `_scored_cache`
-entries and must never be mutated by a request. Do not "optimise" that to a pop.
+### 2. Estimator recalibrated (`scoring.py`)
 
-Client side, `openModal` now rebuilds either blob on demand:
-`p.explain || (p.explain = buildExplain(p))` and the `buildDealExplain(p,
-acquirability(p))` equivalent, memoised onto the player object.
+Constants were fitted numerically against the live roster, not guessed:
 
-Measured on the full 5,000-row response: **18.98 MB -> 9.5 MB raw (-50%),
-2.79 MB -> 1.79 MB gzipped (-36%)**. Browser-verified: with the trimmed payload
-the modal still renders 2 ex-boxes, 11 chips, 4 driver lines, identical text.
+```
+VALUE_FLOOR = 80000.0     VALUE_CEIL  = 200000.0
+VALUE_MEDIAN = 121452.0   VALUE_SPREAD = 0.4385
+VALUE_FACTOR_EXP = 0.6701 VALUE_BASE_REF = 0.561641
+FEE_REF = 80000.0         (was 10000.0 — the old dataset floor)
+```
 
-### 2. Roster cache freshness (`api_server.py`)
+`VALUE_FACTOR_EXP` is **new machinery**, and the reason it exists matters if you
+touch this again: the band is only 1.5x wide, but `leagueStrength x ageFactor x
+minutesFactor` alone already spread 1.69x across the middle 90% of the roster.
+On the old formula the economics consumed the entire band and the quality
+composite had nowhere left to move the number — a naive fit drove the quality
+term to **zero** (bottom-decile-quality estimate 95,010 vs top-decile 95,391).
+The exponent damps those three factors so quality gets room. Fitted against two
+constraints: p02→p90 spans 80k→120k, and top-decile quality estimates 1.25x
+bottom-decile.
 
-`_raw_players` / `_scored_cache` lived for the process lifetime, so a write by
-another process — `refresh_prod_players.py` uses its own engine — was invisible
-until the container restarted. That is why the roster refresh needed a redeploy.
+The composite is mildly anti-correlated (**-0.15**) with the economic
+multiplier — thin minutes inflate per-90 rates while cutting the minutes
+factor — which is why the two terms cancel if you don't constrain the fit.
 
-Now: poll a cheap aggregate fingerprint at most once every
-`CACHE_CHECK_SECONDS` (env, default 60) and rebuild only when it moves.
-`_db_stamp()` = `(COUNT(id), MAX(last_updated), SUM(market_value))`.
-**SUM is in the stamp on purpose** — the e2e test changed one player's value
-while count and date stayed identical, which COUNT+MAX alone would have missed.
+Estimated values now land 89.6% in band vs 90.0% for recorded: same scale.
 
-- `get_scored()` now resolves `get_players()` **first**, because the freshness
-  check can empty `_scored_cache`; reading the score cache first would serve a
-  scored list built from a superseded roster. Don't reorder those lines.
-- `invalidate_caches()` replaces the ad-hoc global resets.
-- New `POST /api/admin/cache/refresh` (admin-gated) for the immediate button
-  right after a bulk load, so nobody has to redeploy.
-- Thread-safe: FastAPI runs sync endpoints in a threadpool. `_cache_lock` +
-  double-checked None guard in `get_players()`.
-- `import time` / `import threading` moved to the top of the module. **Required**
-  — `warm_caches()` runs at import, before the old mid-file `import time`.
+### 3. All three engine copies kept bit-exact
 
-End-to-end proof against a real external sqlite writer, `CACHE_CHECK_SECONDS=3`:
-before the interval the response stayed cached; after it the log printed
-`[cache] players table changed (5000, '2026-07-27', 295928502) -> (…296372946);
-reloading` and the player came back rescored (UV 14.5 -> -41.2), not just re-read.
+The value engine exists three times and they must not drift:
+- `scoring.py` (Python)
+- `build_html.py` (JS port, ~line 1493 constants, ~line 2172 `estimateMarketValue`)
+- `db_schema.py` `UNDERVALUED_VIEW_SQL` (~line 180) — **this one is executed**,
+  `db_migrate.py` creates the `player_scores` view from it.
 
-### Tests
+The `player_scores` view baked into `scouting.db` was stale after the change and
+had to be rebuilt (`DROP VIEW` + `executescript(UNDERVALUED_VIEW_SQL)`). That
+was the cause of the `test_scores_match_sql_view` failure. **If you change the
+formula again, rebuild that view or the test fails confusingly.**
 
-`test_api.py` **44 passed** (38 baseline + 6 new): list omits the blobs but keeps
-every field the client needs to rebuild them; single-player endpoint still has
-them; the trim doesn't mutate the score cache; an external write is picked up
-without a restart; the admin endpoint is gated and reloads; `invalidate_caches()`
-clears both. JS parses under `node --check`.
+Verified: SQL vs Python 0 mismatches across 5,000 rows; JS vs Python max
+difference 7.1e-15 on all of `estimatedMarketValue`, `displayMarketValue`,
+`undervaluedScore`, `acquirabilityScore`, `dealScore`.
 
-### Next step
+### 4. Daily auto-update against the live DB
 
-Push. Decision already taken: hold `f94bb48`, bundle it with the backend work
-below, deploy both together.
+- `daily_update.py` (new) — connects via `DATABASE_URL`, drifts every player by
+  one day of match activity, adds `NEW_PLAYERS_PER_DAY` (default 2) new players
+  on the band, stamps `last_updated`. One transaction, `--apply` to write.
+  Only the `players` table is touched and existing rows are updated in place,
+  so ids stay stable and **no shortlist breaks**. Aborts and rolls back if the
+  count is wrong, if any row missed today's stamp, or if any value fell below
+  the floor.
+- `.github/workflows/daily-update.yml` (new) — 03:00 UTC daily, plus
+  `workflow_dispatch` with a dry-run toggle. `concurrency` group prevents two
+  overlapping runs double-counting a day.
+- `weekly_update.py` — `refresh_player()` gained `play_chance` / `agent_chance`
+  params (defaults unchanged, so weekly behaviour is identical). Its market-value
+  tick-up was **buggy for the new band**: it re-entered no-value players at
+  `randint(8000, 20000)`, below the floor, and compounded 1.03-1.12x with no
+  cap. Now enters at a band value and caps at `VALUE_TAIL_HI`.
 
-## SECOND UNPUSHED COMMIT — the three backend items
+Cadence note: weekly rates fired daily would give every player seven matches a
+week. Daily uses `PLAY_CHANCE = 0.28` (~2 matches/wk) and `AGENT_CHANCE = 0.006`.
 
-`_RATE_BUCKETS` eviction, conditional GET, and the request-path cost. All in
-`api_server.py`; `test_api.py` is **65 passed** (44 baseline + 21 new).
+## Verification status
 
-### 1. Rate-bucket leak — fixed
+- `pytest test_api.py` — **65 passed**.
+- `node --check` on the extracted app JS — OK.
+- HTML regeneration is reproducible, so CI's stale-frontend check passes.
+- `daily_update.py` exercised end-to-end against a SQLite copy: 5,000 → 5,002
+  players, all stamped, values still in band.
 
-`_RATE_BUCKETS` is keyed by client IP and nothing ever removed a key, so every
-IP that ever connected held two deques for the process lifetime — and an
-attacker could drive it by varying `X-Forwarded-For`.
+Two tests were updated (not weakened) because the constants they pinned moved:
+`test_acquirability_spec_examples` — recomputed, and kept in step with the
+worked examples in `acquirability_spec.md`. Change both together.
 
-`_sweep_rate_buckets()` runs from `_rate_ok()` every `RATE_SWEEP_SECONDS` (300)
-or whenever the dict exceeds `RATE_MAX_TRACKED_IPS` (20000). It prunes
-timestamps past the widest window and drops IPs left with nothing — that state
-is indistinguishable from never-seen, so it changes no decision. Only the
-over-cap eviction is lossy: it drops least-recently-active IPs, handing them a
-fresh budget. That trade is deliberate and is the same exposure a restart
-already creates.
+`test_app.js` could not run: **`jsdom` is not installed** in this environment.
+Pre-existing gap — CI never ran it either (CI only does `node --check`). Not
+caused by this work, but it means the DOM-level suite is unverified.
 
-### 2. ETag / Cache-Control on `/api/players` — added
+## Known consequence, flagged deliberately
 
-`W/"<boot token>-<roster version>-<sha of every query param>"`, plus
-`Cache-Control: private, max-age=0, must-revalidate`.
+Acquirability rose across the board (median **44.1 → 51.2**). `FEE_REF` is
+documented as the dataset floor, and the floor moved 10k → 80k, so every fee
+term now sits near 1.0: at 80k it's 1.0, at 200k only 0.726. **The fee is no
+longer much of a discriminator** — contract urgency and representation now carry
+almost all of the acquirability signal. That follows directly from asking for a
+narrow band and is not a bug, but if you want fee to bite again the lever is
+`FEE_EXP` (currently 0.35).
 
-- `_roster_version` bumps in the ONE place a rebuilt roster becomes live
-  (inside `get_players()`, under the lock). Don't bump it anywhere else.
-- The boot token covers *code*: `scoring.py` or `LIST_OMIT_FIELDS` can change
-  the body without the roster moving, and a deploy restarts the process. It
-  also means **this stops helping if the service is ever scaled past one
-  replica** — different boot tokens, so revalidation always misses. It never
-  becomes *wrong*, just useless.
-- The check runs before the filter pass, so a 304 skips the work, not just the
-  bytes. Verified over real HTTP: `304`, 0 bytes.
-- Staleness is bounded by `CACHE_CHECK_SECONDS`, exactly like the roster cache
-  it sits on top of — a 304 can only be as stale as the cache already was.
-- `invalidate_caches()` forces a version bump even when the data is unchanged,
-  so an admin refresh makes every client re-download. Conservative on purpose.
+`scoring.py`'s `market_history()` still floors `start_value` at 6000.0. With
+values ≥80k and `start_frac ≥ 0.45` that floor is now unreachable — dead but
+harmless, left alone to avoid touching another JS-parity surface.
 
-**Not verified: whether Chrome revalidates on its own.** `apiFetch` uses default
-fetch options (no `no-store`, no cache-buster), and `must-revalidate` is one of
-the directives that permits storing an `Authorization`-bearing response, so it
-should. But the Chrome extension dropped mid-check and no headless browser is
-installed, so this is reasoned, not observed. **Confirm in devtools after the
-deploy** — look for `304` on the second `/api/players` load. If Chrome declines
-to store it, the server side is still correct and the fix is client-side
-(send `If-None-Match` explicitly from `apiFetch`).
+## The one thing left — needs the repo owner
 
-### 3. The "sort ceiling" — the handoff's diagnosis was wrong
+The daily workflow needs a **`DATABASE_URL` repository secret** before it will
+do anything: Settings → Secrets and variables → Actions → New repository secret.
 
-Measured on the 5,000-row roster, `GET /api/players?pageSize=10000` was 962 ms:
+Use Railway's **`DATABASE_PUBLIC_URL`**, not the internal one — a GitHub runner
+is outside Railway's network and cannot resolve `*.railway.internal`.
 
-| | |
-|---|---|
-| `jsonable_encoder` | **516 ms** |
-| `json.dumps` | 164 ms |
-| `_list_item` copies | 33 ms |
-| summary passes | 1.8 ms |
-| **sort** | **1.4 ms** |
-| filter pass | 0.8 ms |
+Until that secret exists the workflow fails fast with a clear error (that check
+is deliberate — without it SQLAlchemy would fail with something far less
+obvious).
 
-The sort was **0.15%** of the request. The real ceiling was FastAPI running
-`jsonable_encoder` over every value of anything that isn't already a `Response`
-— and it had nothing to convert, because the payload is already
-`str/int/float/bool` end to end.
+After adding it: trigger the workflow manually with the apply box **unchecked**
+to get a dry run against prod before letting the schedule write anything.
 
-Both fixes are in:
+## Also still outstanding, from the previous handoff
 
-- **`get_sorted()`** caches display order per `(weights, sort, dir)`, so the
-  request does one filtering pass and no sort. Stable sort means filtering an
-  ordered list == sorting the filtered one, ties included —
-  `test_presorted_order_matches_sorting_the_filtered_set` pins that. It must be
-  invalidated everywhere `_scored_cache` is, and `get_sorted()` resolves
-  `get_scored()` **first** for the same reason `get_scored()` resolves
-  `get_players()` first. Small win, but it is the correct structure.
-- **`/api/players` and `/api/players/all` return `JSONResponse`**, which makes
-  FastAPI skip the encoder. This is the actual win.
-
-**962 ms -> 170 ms (5.7x)** for the full roster; `/api/players/all`, which runs
-on every sign-in, **250 ms -> 33 ms**.
-
-Output is **byte-identical**: 14 representative queries plus `/api/players/all`
-compared by SHA-256, length and content-type before and after. `JSONResponse`
-uses the same `json.dumps` settings FastAPI would have.
-
-What makes the bypass safe is that the payload is JSON primitives with no
-non-finite floats — audited across all 5,000 players and pinned by
-`test_list_payload_is_json_primitives_only` /
-`test_players_all_payload_is_json_primitives_only`, so if scoring ever emits a
-`datetime`, `Decimal` or `NaN` it fails in the suite rather than as malformed
-JSON in a browser. `test_encoder_probe_would_notice_a_regression` guards the
-guard — it asserts a still-dict-returning endpoint *does* hit the encoder, so
-the `calls == []` assertions can't pass vacuously.
-
-**Don't "tidy" either endpoint back to returning a plain dict.**
-
-## Data accuracy — measured, nothing implemented yet
-
-Backtested `estimate_market_value` against the 3,750 players that *do* have a
-recorded value (`players_current.json` + `scoring.compute_scores`):
-
-- **Median absolute error 50.3%**; only 24.2% land within ±25%, 49.7% within
-  ±50%. Median signed bias **+15.4%** (over-estimates).
-- **The undervalued gap partly self-cancels for the 1,250 estimated-value
-  players.** `marketPct` ranks `displayMarketValue`, which for them *is* a
-  monotone function of the same quality composite driving `performancePct`.
-  Correlation between the two: **+0.015 for known-value players vs +0.731 for
-  estimated ones.** UV spread halves (sd 40.9 -> 20.5) and the High Priority
-  rate drops **16.4% -> 4.4%**. That 25% of the roster is structurally
-  under-surfaced — the mirror image of the bug `scoring.py:816` describes fixing.
-
-Proposed direction (not started, not agreed): treat estimated-value players as a
-separate confidence class — a value *band* rather than a point estimate, and
-keep them out of a gap they cannot meaningfully express — plus fill the 1,250
-missing values and 1,535 unknown-representation records.
-
-## Other backend findings
-
-1. ~~`_RATE_BUCKETS` grows unbounded~~ — **fixed above.**
-2. ~~No ETag / Cache-Control on `/api/players`~~ — **fixed above.**
-3. ~~Filter+sort is a full Python pass per request~~ — **fixed above, though the
-   diagnosis was wrong: the cost was `jsonable_encoder`, not the sort.**
-4. **Railway's edge already gzips** (`Content-Encoding: gzip` confirmed on prod).
-   Adding `GZipMiddleware` would buy nothing — the 18 MB in the old handoff was
-   the *decompressed* size. Don't re-propose it.
-5. **Every other dict-returning endpoint still pays `jsonable_encoder`.** Only
-   the two roster endpoints were converted, because those are the ones where it
-   was worth the loss of FastAPI's conversion safety net. `/api/players/ids` is
-   the next largest if it ever matters. Measure before converting: on small
-   payloads the encoder is noise.
-6. `orjson` is **not** installed. `json.dumps` is now the largest single cost of
-   a full-roster response (164 ms). An `ORJSONResponse` would likely cut that
-   several-fold, but it is a new dependency — not taken unilaterally.
-
-## Still open (carried over)
-
-1. **Rotate the Postgres password — STILL OPEN. Needs the user, not an agent.**
-   Printed in plaintext by
-   `railway variables --service postgres` in an earlier session. Do it attended:
-   Postgres service -> Variables -> regenerate `POSTGRES_PASSWORD` -> let it
-   redeploy -> redeploy `scouting-app`. `DATABASE_URL` is a
-   `${{Postgres.DATABASE_URL}}` reference so it updates itself. Verify:
-   `/api/meta` returns 200 with `"backend":"postgresql"`. Not done from an agent
-   session — if the two services redeploy out of order the site is down until it
-   settles.
-2. **Commit `2ca8da6`'s subject line is a stray `@`** (PowerShell here-string in
-   a bash shell). Amending worked locally but the force-push was rejected: `main`
-   is protected. Fixing it means temporarily lifting branch protection — user's
-   call. Body of the message is intact.
-3. **500/page option** — never added; the render rewrite may make it unnecessary.
-4. **Landing page prose** still hardcodes "5,000 players" and "six continents".
-   Read `/api/meta` instead — `4a43364` is the pattern to copy.
-5. **Test deps never installed**: `gen_test.py` needs `openpyxl`;
-   `test_app.js` / `smoke_test_v4.js` need `jsdom`. Both pre-existing.
-
-## Facts worth not rediscovering
-
-- **Run the app locally like this** (never against the real `scouting.db` —
-  importing `api_server` runs `init_db()`, which creates auth tables in whatever
-  DB you point at, and it dirtied `scouting.db` once):
-  `PERSIST_DIR=<scratch dir> PORT=8011 python api_server.py`
-  `default_db_url()` copies the shipped `scouting.db` into that mount, so the
-  real file is untouched. Register a throwaway user via `POST
-  /api/auth/register`, then set `localStorage["scoutingAuthV1"]` =
-  `{"token":…,"username":…}` to sign the browser in.
-- `alert()` at `build_html.py:2958` (compare limit) will freeze the Chrome
-  extension. Override `window.alert` before exercising the compare checkbox.
-- Railway project `appealing-surprise` / env `production` / service
-  `scouting-app`. `railway deployment list --json` shows the deployed commit.
-- URL: https://scouting-app-production-2cd2.up.railway.app (`/` landing,
-  `/app` app, `/api/...` REST).
-- **Auth runs before query validation** — every unauthenticated probe returns
-  401, including malformed params. Don't waste time on curl probes.
-- `railway redeploy` re-runs the *existing* image and ignores new commits.
-- `_seed_players_if_empty` only seeds an *empty* table, so roster changes never
-  propagate to an already-seeded prod. `refresh_prod_players.py` is the fix.
-- `export_value_band.py` needs `DATABASE_URL="sqlite:///./scouting.db"` — without
-  it, it silently falls back to a throwaway sqlite under /tmp with a *different*
-  roster.
-- `prod_backup_20260807.json` (gitignored) holds password hashes and TOTP
-  secrets. Do not commit.
-
-## Known pre-existing failures (not caused by this work)
-
-- `gen_test.py` won't collect: missing `openpyxl`.
-- `test_app.js` / `smoke_test_v4.js` fail on "initial render shows first page of
-  50 rows" because `RAW_PLAYERS` is empty in the build (roster comes from the
-  authed API). Reproduced against HEAD before any changes.
-
-## Resume
-
-Run `/clear`, then: "continue from handoff.md".
+The prod password rotation (`JWT_SECRET` still on the dev default) — unrelated
+to this work, carried forward.
